@@ -13,6 +13,7 @@ src/
   styles.css                 全局布局和组件样式
   F309.glb                   默认加载的模型
   modelStructure.js          模型信息、节点列表、结构导出、姿态导出
+  modelExport.js             当前编辑后模型的 GLB 导出
   modelTransform.js          节点位置、旋转、缩放的读取和写入
   modelGrouping.js           新建 Object3D、节点拖拽换父级、安全删除
   modelHistory.js            当前页面里的“返回上一步”编辑记录

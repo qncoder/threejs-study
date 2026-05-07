@@ -1,4 +1,5 @@
 const MENU_ITEMS = [
+  { action: 'create-object3d', label: '新建 Object3D' },
   { action: 'edit-script', label: '编辑脚本' },
   { action: 'show-info', label: '查看信息' },
   { action: 'delete', label: '删除' },

@@ -13,7 +13,7 @@ const sliding = findNode('flap1_hydraulic_slidingshaft')
 const pivot = findNode('flap1_pivot')
 const flap1 = findNode('flap1')
 const output = findNode('flap1_output_shaft')
-
+const driving = findNode('flap1_driving_shaft')
 if (!fixed || !sliding || !pivot || !flap1 || !output) {
   console.warn('缺少节点', { fixed, sliding, pivot, flap1, output })
   return

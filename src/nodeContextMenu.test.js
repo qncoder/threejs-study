@@ -9,6 +9,7 @@ import {
 describe('nodeContextMenu', () => {
   it('提供固定的节点右键菜单项', () => {
     expect(getNodeContextMenuItems().map((item) => item.action)).toEqual([
+      'create-object3d',
       'edit-script',
       'show-info',
       'delete',

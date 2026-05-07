@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Mesh, Object3D } from 'three';
 import {
   collectVisibilityTargets,
+  createAllHiddenNodeSet,
   isNodeEffectivelyHidden,
   toggleHiddenNode,
 } from './nodeVisibility.js';
@@ -43,5 +44,18 @@ describe('nodeVisibility', () => {
     expect([...hidden]).toEqual(['old']);
     expect(next.has('target')).toBe(true);
     expect(toggleHiddenNode(object, next).has('target')).toBe(false);
+  });
+
+  it('全部隐藏时跳过模型根节点，隐藏其余节点', () => {
+    const root = new Object3D();
+    root.uuid = 'root';
+    const child = new Object3D();
+    child.uuid = 'child';
+    const mesh = new Mesh();
+    mesh.uuid = 'mesh';
+    child.add(mesh);
+    root.add(child);
+
+    expect(createAllHiddenNodeSet(root)).toEqual(new Set(['child', 'mesh']));
   });
 });

@@ -187,7 +187,6 @@ if (!plateMesh || !fixedMesh || !slidingMesh) {
 
   const safeStepDeg = clamp(Math.abs(ANGLE_STEP_DEG), 0, MAX_STEP_DEG);
   const deltaRotation = deg(safeStepDeg * TAILBEAM_MOVE_DIRECTION);
-  const A1 = rotatePointAroundCInYZ(A0, C, deltaRotation);
 
   const startPlateRotationX = plateMesh.rotation.x;
   const startFixedRotationX = fixedMesh.rotation.x;

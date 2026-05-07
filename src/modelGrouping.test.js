@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { BoxGeometry, Group, Mesh, MeshBasicMaterial, Object3D, Vector3 } from 'three';
+import { BoxGeometry, Group, Mesh, MeshBasicMaterial, Object3D, Quaternion, Vector3 } from 'three';
 import {
   createPartObject3D,
+  createSiblingPartObject3D,
   deleteCreatedObject3D,
   moveNodeNextToObject3D,
   moveNodeToObject3D,
@@ -10,6 +11,14 @@ import {
 
 function worldPosition(object) {
   return object.getWorldPosition(new Vector3()).toArray().map((value) => Number(value.toFixed(4)));
+}
+
+function worldQuaternion(object) {
+  return object.getWorldQuaternion(new Quaternion()).toArray().map((value) => Number(value.toFixed(4)));
+}
+
+function worldScale(object) {
+  return object.getWorldScale(new Vector3()).toArray().map((value) => Number(value.toFixed(4)));
 }
 
 describe('modelGrouping', () => {
@@ -26,6 +35,48 @@ describe('modelGrouping', () => {
     expect(node.type).toBe('Object3D');
     expect(node.name).toBe('部件节点 2');
     expect(node.parent).toBe(root);
+  });
+
+  it('可以把新建 Object3D 放到指定父节点下', () => {
+    const root = new Group();
+    root.name = 'Scene';
+    const parent = new Object3D();
+    parent.name = 'parent';
+    root.add(parent);
+
+    const node = createPartObject3D(root, parent);
+
+    expect(node).toBeInstanceOf(Object3D);
+    expect(node.parent).toBe(parent);
+    expect(parent.children).toContain(node);
+  });
+
+  it('右键在节点上新建 Object3D 时，创建同级节点并只复制名称和位置', () => {
+    const root = new Group();
+    const group = new Object3D();
+    group.name = 'group';
+    group.position.set(5, 0, 0);
+    group.rotation.set(0, Math.PI / 6, 0);
+    group.scale.set(2, 2, 2);
+    const target = new Object3D();
+    target.name = 'target';
+    target.position.set(1, 2, 3);
+    target.rotation.set(0.1, 0.2, 0.3);
+    target.scale.set(2, 3, 4);
+    const other = new Object3D();
+    other.name = 'other';
+    group.add(target, other);
+    root.add(group);
+    root.updateWorldMatrix(true, true);
+
+    const node = createSiblingPartObject3D(root, target);
+
+    expect(node.parent).toBe(group);
+    expect(group.children).toEqual([target, node, other]);
+    expect(node.name).toBe('target 1');
+    expect(worldPosition(node)).toEqual(worldPosition(target));
+    expect(node.rotation.toArray().slice(0, 3)).toEqual([0, 0, 0]);
+    expect(node.scale.toArray()).toEqual([1, 1, 1]);
   });
 
   it('把一个 Object3D 拖到另一个 Object3D 下面时保持世界坐标不跳变', () => {

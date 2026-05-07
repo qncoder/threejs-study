@@ -27,6 +27,7 @@ import {
   createPoseExport,
   createStructureExport,
 } from './modelStructure.js';
+import { createEditedGlbFileName, exportModelAsGlb } from './modelExport.js';
 import {
   captureOriginalNodeTransforms,
   cloneTransform,
@@ -58,6 +59,7 @@ import {
 import { findSelectableNodeUuid } from './modelSelection.js';
 import {
   createPartObject3D,
+  createSiblingPartObject3D,
   deleteCreatedObject3D,
   isViewerCreatedObject3D,
   moveNodeNextToObject3D,
@@ -90,7 +92,7 @@ import {
 import { canDropNodeOnTarget } from './nodeDropRules.js';
 import { createNodeFocusTarget, applyNodeFocusTarget } from './nodeFocus.js';
 import { createNodeInfoSections } from './nodeInfoSections.js';
-import { isNodeEffectivelyHidden, toggleHiddenNode } from './nodeVisibility.js';
+import { createAllHiddenNodeSet, isNodeEffectivelyHidden, toggleHiddenNode } from './nodeVisibility.js';
 import { clampPanelWidth } from './panelResize.js';
 import {
   bindNodeControlScript,
@@ -471,8 +473,39 @@ function exportPose() {
   status.value = `当前姿态已导出：${payload.nodeCount} 个节点`;
 }
 
+async function exportEditedModel() {
+  stopMotionPlayback();
+  if (!currentModel || !modelInfo.value) {
+    status.value = '请先加载模型';
+    return;
+  }
+
+  try {
+    status.value = '正在导出模型...';
+    currentModel.updateWorldMatrix?.(true, true);
+    refreshStructureAfterTransform();
+    const payload = await exportModelAsGlb(currentModel);
+    const fileName = createEditedGlbFileName(modelInfo.value.fileName);
+    downloadBinary(payload, fileName, 'model/gltf-binary');
+    status.value = `模型已导出：${fileName}`;
+  } catch (error) {
+    console.error(error);
+    status.value = '模型导出失败';
+  }
+}
+
 function downloadJson(payload, fileName) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadBinary(payload, fileName, type) {
+  const blob = new Blob([payload], { type });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -502,7 +535,32 @@ async function copyNodeName(node) {
     : result.error;
 }
 
-function addPartObject3D() {
+function addPartObject3D(parent = currentModel, options = {}) {
+  stopMotionPlayback();
+  if (!currentModel) {
+    status.value = '请先加载模型';
+    return;
+  }
+
+  const targetParent = parent?.isObject3D ? parent : currentModel;
+  pushModelHistory();
+  const object = createPartObject3D(currentModel, targetParent, options);
+  selectedNodeUuid.value = object.uuid;
+  resetTransformModeForSelection();
+  originalNodeTransforms = captureOriginalNodeTransforms(currentModel);
+  refreshStructureAfterTransform();
+  syncTransformDraftFromSelection();
+  status.value = `已在 ${targetParent.name || '模型根节点'} 下新增 Object3D：${object.name}`;
+  saveCurrentSessionState();
+}
+
+function addPartObject3DToNode(uuid) {
+  const sibling = findObjectByUuid(uuid);
+  if (!sibling) {
+    status.value = '没有找到要新建 Object3D 的参考节点';
+    return;
+  }
+
   stopMotionPlayback();
   if (!currentModel) {
     status.value = '请先加载模型';
@@ -510,13 +568,13 @@ function addPartObject3D() {
   }
 
   pushModelHistory();
-  const object = createPartObject3D(currentModel);
+  const object = createSiblingPartObject3D(currentModel, sibling);
   selectedNodeUuid.value = object.uuid;
   resetTransformModeForSelection();
   originalNodeTransforms = captureOriginalNodeTransforms(currentModel);
   refreshStructureAfterTransform();
   syncTransformDraftFromSelection();
-  status.value = `已新增 Object3D：${object.name}`;
+  status.value = `已在 ${sibling.name || '(未命名)'} 同级新增 Object3D：${object.name}`;
   saveCurrentSessionState();
 }
 
@@ -681,6 +739,23 @@ function toggleNodeVisibility(node) {
   saveCurrentSessionState();
 }
 
+function hideAllNodes() {
+  if (!currentModel) {
+    status.value = '请先加载模型';
+    return;
+  }
+
+  hiddenNodeUuids.value = createAllHiddenNodeSet(currentModel);
+  applyModelAppearance();
+  if (isNodeEffectivelyHidden(findObjectByUuid(selectedNodeUuid.value), hiddenNodeUuids.value, currentModel)) {
+    selectedNodeUuid.value = '';
+    syncTransformDraftFromSelection();
+    updateSelectionBox();
+  }
+  status.value = `已隐藏全部节点：${hiddenNodeUuids.value.size} 个`;
+  saveCurrentSessionState();
+}
+
 function toggleSearchModelOnly() {
   if (!hasNodeKeyword.value) return;
 
@@ -721,6 +796,7 @@ function handleContextMenuAction(action) {
   const uuid = nodeContextMenu.value.nodeUuid;
   closeContextMenu();
 
+  if (action === 'create-object3d') addPartObject3DToNode(uuid);
   if (action === 'edit-script') openScriptDialog(uuid);
   if (action === 'show-info') openInfoDialog(uuid);
   if (action === 'delete') deleteNodeByUuid(uuid);
@@ -1291,6 +1367,7 @@ function updateTransformControls() {
   }
 
   transformControls.setMode(transformControlMode.value);
+  transformControls.setSpace('local');
   transformControls.attach(object);
   transformControlsHelper.visible = true;
 }
@@ -1688,7 +1765,9 @@ function formatScriptNumber(value) {
           <h2>节点列表</h2>
           <div class="node-title-actions">
             <button type="button" :disabled="!modelReady" @click="addPartObject3D">新建 Object3D</button>
+            <button type="button" :disabled="!modelReady" @click="exportEditedModel">导出模型</button>
             <button type="button" :disabled="!modelReady" @click="refreshStructure">刷新</button>
+            <button type="button" :disabled="!modelReady" @click="hideAllNodes">全部隐藏</button>
           </div>
         </div>
         <div class="node-tools">

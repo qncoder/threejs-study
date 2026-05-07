@@ -7,6 +7,16 @@ export function collectVisibilityTargets(object) {
   return uuids;
 }
 
+export function createAllHiddenNodeSet(root) {
+  const hidden = new Set();
+  if (!root) return hidden;
+
+  root.traverse?.((node) => {
+    if (node !== root && node.uuid) hidden.add(node.uuid);
+  });
+  return hidden;
+}
+
 export function isNodeEffectivelyHidden(object, hiddenNodeUuids, stopAt = null) {
   if (!object || !hiddenNodeUuids?.size) return false;
 
