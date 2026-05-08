@@ -77,16 +77,72 @@ export function createSiblingPartObject3D(root, sibling, options = {}) {
     ...options,
     baseName: options.baseName ?? sibling.name ?? DEFAULT_OBJECT_NAME,
     inheritPositionFrom: options.inheritPositionFrom ?? sibling,
-    inheritRotationFrom: options.inheritRotationFrom ?? sibling,
-    inheritScaleFrom: options.inheritScaleFrom ?? sibling,
+    inheritRotationFrom: options.inheritRotationFrom,
+    inheritScaleFrom: options.inheritScaleFrom,
   })
   moveNodeAfterSibling(object, sibling, parent)
   root.updateWorldMatrix?.(true, true)
   return object
 }
 
+export function initializeMeshObject3Ds(root) {
+  if (!root) {
+    return { created: 0, skipped: 0 }
+  }
+
+  root.updateWorldMatrix?.(true, true)
+  const meshes = []
+  root.traverse?.((object) => {
+    if (object.isMesh) meshes.push(object)
+  })
+
+  let created = 0
+  let skipped = 0
+  meshes.forEach((mesh) => {
+    if (!mesh.parent || isInitializedMeshObject(mesh)) {
+      skipped += 1
+      return
+    }
+
+    wrapMeshWithObject3D(root, mesh)
+    created += 1
+  })
+
+  root.updateWorldMatrix?.(true, true)
+  return { created, skipped }
+}
+
 function divideScale(value, parentValue) {
   return parentValue === 0 ? 1 : value / parentValue
+}
+
+function isInitializedMeshObject(mesh) {
+  const parent = mesh.parent
+  return Boolean(parent?.children.some((sibling) =>
+    sibling !== mesh
+      && sibling.type === 'Object3D'
+      && sibling.userData?.[CREATED_OBJECT_KEY] === true
+      && sibling.name === meshObjectName(mesh)
+  ))
+}
+
+function wrapMeshWithObject3D(root, mesh) {
+  const parent = mesh.parent
+
+  const object = new Object3D()
+  object.name = nextObjectName(root, meshObjectName(mesh))
+  markViewerCreatedObject3D(object)
+  object.position.copy(mesh.position)
+  object.quaternion.copy(mesh.quaternion)
+  object.scale.copy(mesh.scale)
+  parent.add(object)
+  moveNodeAfterSibling(object, mesh, parent)
+  root.updateWorldMatrix?.(true, true)
+  return object
+}
+
+function meshObjectName(mesh) {
+  return `${mesh.name || DEFAULT_OBJECT_NAME}_pos`
 }
 
 function moveNodeAfterSibling(node, sibling, parent) {
@@ -252,10 +308,10 @@ function uniqueObjectName(root, baseName, exclude = null) {
   }
 
   let index = maxIndex > 0 ? maxIndex + 1 : 1
-  let name = `${baseName}_pos`
+  let name = `${baseName} ${index}`
   while (names.has(name)) {
     index += 1
-    name = `${baseName}_pos`
+    name = `${baseName} ${index}`
   }
   return name
 }

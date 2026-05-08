@@ -17,6 +17,22 @@ export function createAllHiddenNodeSet(root) {
   return hidden;
 }
 
+export function areAllNodesHidden(root, hiddenNodeUuids) {
+  if (!root) return false;
+
+  let hasTarget = false;
+  let allHidden = true;
+  root.traverse?.((node) => {
+    if (node === root || !node.uuid) return;
+
+    hasTarget = true;
+    if (!hiddenNodeUuids?.has(node.uuid)) {
+      allHidden = false;
+    }
+  });
+  return hasTarget && allHidden;
+}
+
 export function isNodeEffectivelyHidden(object, hiddenNodeUuids, stopAt = null) {
   if (!object || !hiddenNodeUuids?.size) return false;
 

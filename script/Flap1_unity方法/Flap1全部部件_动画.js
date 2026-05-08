@@ -3,7 +3,7 @@ const MOVE_DIRECTION = 1
 const FRAME_INTERVAL = 16
 
 // BC 行程限位，按你的模型实际距离调整
-const MIN_BC = 0.35
+const MIN_BC = 0.922
 const MAX_BC = 1.2
 
 const ROTATE_AXIS = new THREE.Vector3(1, 0, 0)
@@ -17,13 +17,13 @@ const AObject = node.getObjectByName('flap1_driving_shaft_pos')
 const BObject = node.getObjectByName('flap1_hydraulic_fixed_pos')
 const CObject = node.getObjectByName('flap1_hydraulic_slidingshaft_pos')
 const DObject = node.getObjectByName('flap1_output_shaft_pos')
-const EObject = node.getObjectByName('flap1')
+const EObject = node.getObjectByName('flap1_pos')
 
 if (!AObject) throw new Error('找不到 flap1_driving_shaft_pos')
 if (!BObject) throw new Error('找不到 flap1_hydraulic_fixed_pos')
 if (!CObject) throw new Error('找不到 flap1_hydraulic_slidingshaft_pos')
 if (!DObject) throw new Error('找不到 flap1_output_shaft_pos')
-if (!EObject) throw new Error('找不到 flap1')
+if (!EObject) throw new Error('找不到 flap1_pos')
 
 function setWorldPosition(object, targetWorldPosition) {
   const localPosition = targetWorldPosition.clone()
@@ -68,22 +68,16 @@ function getPointC(BC) {
 function getPointD(C, E, CDLength, EDLength, oldD) {
   const EC = C.clone().sub(E)
   const ECLength = EC.length()
-
-  if (ECLength <= 0.000001) return null
+  if (ECLength <= 0.0001) return null
   if (ECLength > CDLength + EDLength || ECLength < Math.abs(EDLength - CDLength)) return null
-
   const ex = EC.clone().normalize()
-
   const x = (EDLength * EDLength - CDLength * CDLength + ECLength * ECLength) / (2 * ECLength)
   const h2 = EDLength * EDLength - x * x
   const h = Math.sqrt(Math.max(0, h2))
-
   const ey = new THREE.Vector3().crossVectors(ROTATE_AXIS, ex).normalize()
   const base = E.clone().add(ex.clone().multiplyScalar(x))
-
   const D1 = base.clone().add(ey.clone().multiplyScalar(h))
   const D2 = base.clone().add(ey.clone().multiplyScalar(-h))
-
   return D1.distanceTo(oldD) <= D2.distanceTo(oldD) ? D1 : D2
 }
 
@@ -92,7 +86,6 @@ function getSignedAngle(fromVector, toVector) {
   const to = toVector.clone().normalize()
   const cross = new THREE.Vector3().crossVectors(from, to)
   const dot = THREE.MathUtils.clamp(from.dot(to), -1, 1)
-
   return Math.atan2(ROTATE_AXIS.dot(cross), dot)
 }
 
@@ -131,9 +124,10 @@ let lastFrameTime = 0
 function applyFrame() {
   const nextBCRaw = currentBC - STEP * MOVE_DIRECTION
   const nextBC = THREE.MathUtils.clamp(nextBCRaw, MIN_BC, MAX_BC)
-
+  console.log(currentBC)
+  console.log(nextBC)
   // 已经到限位了，不再继续叠加
-  if (nextBC === currentBC) {
+  if (nextBC >= currentBC) {
     stopAnimation()
     return
   }

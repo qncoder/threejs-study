@@ -9,7 +9,6 @@ import {
   GridHelper,
   HemisphereLight,
   LinearToneMapping,
-  PerspectiveCamera,
   Raycaster,
   Scene,
   SRGBColorSpace,
@@ -21,6 +20,12 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import defaultModelUrl from './F309.glb?url';
+import {
+  CAMERA_MODES,
+  createCameraFromCurrent,
+  createViewerCamera,
+  updateViewerCameraProjection,
+} from './viewerCamera.js';
 import {
   collectModelInfo,
   collectNodeRows,
@@ -61,6 +66,7 @@ import {
   createPartObject3D,
   createSiblingPartObject3D,
   deleteCreatedObject3D,
+  initializeMeshObject3Ds,
   isViewerCreatedObject3D,
   moveNodeNextToObject3D,
   moveNodeToObject3D,
@@ -92,7 +98,12 @@ import {
 import { canDropNodeOnTarget } from './nodeDropRules.js';
 import { createNodeFocusTarget, applyNodeFocusTarget } from './nodeFocus.js';
 import { createNodeInfoSections } from './nodeInfoSections.js';
-import { createAllHiddenNodeSet, isNodeEffectivelyHidden, toggleHiddenNode } from './nodeVisibility.js';
+import {
+  areAllNodesHidden,
+  createAllHiddenNodeSet,
+  isNodeEffectivelyHidden,
+  toggleHiddenNode,
+} from './nodeVisibility.js';
 import { clampPanelWidth } from './panelResize.js';
 import {
   bindNodeControlScript,
@@ -136,6 +147,7 @@ const selectedNodeUuid = ref('');
 const transformDraft = ref(createEmptyTransform());
 const showTransformGizmo = ref(true);
 const transformControlMode = ref(DEFAULT_TRANSFORM_MODE);
+const cameraMode = ref(CAMERA_MODES.PERSPECTIVE);
 const motionProgress = ref(0);
 const isMotionPlaying = ref(false);
 const motionMessage = ref('动作演示会按节点名称驱动，不使用手动标点。');
@@ -197,6 +209,7 @@ const roleSummaryRows = computed(() =>
     nodeCount: nodeRows.value.filter((node) => node.mechanismRole?.key === role.key).length,
   })).filter((role) => role.nodeCount > 0),
 );
+const allNodesHidden = computed(() => areAllNodesHidden(currentModel, hiddenNodeUuids.value));
 const nodeContextMenuItems = computed(() => getNodeContextMenuItems());
 const activeInfoNode = computed(() => nodeRows.value.find((node) => node.uuid === infoDialog.value.nodeUuid) ?? null);
 const activeInfoSections = computed(() => createNodeInfoSections(activeInfoNode.value));
@@ -207,6 +220,12 @@ const scriptDialogMessageClass = computed(() => ({
 const scriptEditorLineNumbers = computed(() => createCodeLineNumbers(scriptDialog.value.script));
 const scriptEditorStats = computed(() => createCodeStats(scriptDialog.value.script));
 const canUsePoseMotion = computed(() => Boolean(startPose.value && endPose.value));
+const cameraModeButtonLabel = computed(() =>
+  cameraMode.value === CAMERA_MODES.ORTHOGRAPHIC ? '切换透视' : '切换正交',
+);
+const cameraModeText = computed(() =>
+  cameraMode.value === CAMERA_MODES.ORTHOGRAPHIC ? '正交' : '透视',
+);
 const appShellStyle = computed(() => ({
   '--structure-panel-width': `${structurePanelWidth.value}px`,
 }));
@@ -345,8 +364,8 @@ function setupScene() {
   scene = new Scene();
   scene.background = new Color('#0f172a');
 
-  camera = new PerspectiveCamera(45, 1, 0.1, 1000);
-  camera.position.set(8, 6, 8);
+  camera = createViewerCamera(CAMERA_MODES.PERSPECTIVE);
+  cameraMode.value = CAMERA_MODES.PERSPECTIVE;
 
   renderer = new WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
   renderer.outputColorSpace = SRGBColorSpace;
@@ -413,8 +432,18 @@ function resizeRenderer() {
   if (clientWidth === 0 || clientHeight === 0) return;
 
   renderer.setSize(clientWidth, clientHeight, false);
-  camera.aspect = clientWidth / clientHeight;
-  camera.updateProjectionMatrix();
+  updateViewerCameraProjection(camera, {
+    width: clientWidth,
+    height: clientHeight,
+    target: controls?.target,
+  });
+}
+
+function currentCanvasAspect() {
+  if (!canvasHost.value) return 1;
+
+  const { clientWidth, clientHeight } = canvasHost.value;
+  return clientWidth > 0 && clientHeight > 0 ? clientWidth / clientHeight : 1;
 }
 
 function refreshStructure() {
@@ -584,6 +613,22 @@ function addPartObject3DToNode(uuid) {
   saveCurrentSessionState();
 }
 
+function initializeMeshObjects() {
+  stopMotionPlayback();
+  if (!currentModel) {
+    status.value = '请先加载模型';
+    return;
+  }
+
+  pushModelHistory();
+  const result = initializeMeshObject3Ds(currentModel);
+  originalNodeTransforms = captureOriginalNodeTransforms(currentModel);
+  refreshStructureAfterTransform();
+  syncTransformDraftFromSelection();
+  status.value = `初始化 Object 完成：新增 ${result.created} 个，跳过 ${result.skipped} 个`;
+  saveCurrentSessionState();
+}
+
 function canRenameNode(node) {
   return isViewerCreatedObject3D(findObjectByUuid(node.uuid));
 }
@@ -745,9 +790,17 @@ function toggleNodeVisibility(node) {
   saveCurrentSessionState();
 }
 
-function hideAllNodes() {
+function toggleAllNodesVisibility() {
   if (!currentModel) {
     status.value = '请先加载模型';
+    return;
+  }
+
+  if (allNodesHidden.value) {
+    hiddenNodeUuids.value = new Set();
+    applyModelAppearance();
+    status.value = '已展示全部节点';
+    saveCurrentSessionState();
     return;
   }
 
@@ -1430,6 +1483,31 @@ function toggleModelTransparency() {
   status.value = isModelTransparent.value ? '模型已半透明' : '模型已恢复不透明';
 }
 
+function toggleCameraMode() {
+  if (!camera) return;
+
+  const nextMode = cameraMode.value === CAMERA_MODES.ORTHOGRAPHIC
+    ? CAMERA_MODES.PERSPECTIVE
+    : CAMERA_MODES.ORTHOGRAPHIC;
+  const target = controls?.target?.clone?.() ?? new Vector3();
+  const nextCamera = createCameraFromCurrent(nextMode, camera, target, currentCanvasAspect());
+  nextCamera.quaternion.copy(camera.quaternion);
+  camera = nextCamera;
+  cameraMode.value = nextMode;
+
+  if (controls) {
+    controls.object = camera;
+    controls.target.copy(target);
+    controls.update();
+  }
+  if (transformControls) {
+    transformControls.camera = camera;
+    updateTransformControls();
+  }
+  resizeRenderer();
+  status.value = nextMode === CAMERA_MODES.ORTHOGRAPHIC ? '已切换到正交相机' : '已切换到透视相机';
+}
+
 function restoreCurrentSessionState() {
   if (!currentModel) return { restored: 0, created: 0 };
 
@@ -1502,6 +1580,11 @@ function resetView() {
   } else {
     camera.position.set(8, 6, 8);
     controls.target.set(0, 0, 0);
+    updateViewerCameraProjection(camera, {
+      width: canvasHost.value?.clientWidth,
+      height: canvasHost.value?.clientHeight,
+      target: controls.target,
+    });
     controls.update();
   }
   status.value = '视角已重置';
@@ -1558,7 +1641,14 @@ function fitCameraToModel(model) {
   camera.far = distance * 100;
   camera.position.set(center.x + distance, center.y + distance * 0.65, center.z + distance);
   camera.lookAt(center);
-  camera.updateProjectionMatrix();
+  if (camera.isOrthographicCamera) {
+    camera.userData.viewHeight = maxSize * 2.6;
+  }
+  updateViewerCameraProjection(camera, {
+    width: canvasHost.value?.clientWidth,
+    height: canvasHost.value?.clientHeight,
+    target: center,
+  });
 
   controls.target.copy(center);
   controls.update();
@@ -1752,9 +1842,12 @@ function createEmptyTransform() {
           <h2>节点列表</h2>
           <div class="node-title-actions">
             <button type="button" :disabled="!modelReady" @click="addPartObject3D">新建 Object3D</button>
+            <button type="button" :disabled="!modelReady" @click="initializeMeshObjects">初始化 Object</button>
             <button type="button" :disabled="!modelReady" @click="exportEditedModel">导出模型</button>
             <button type="button" :disabled="!modelReady" @click="refreshStructure">刷新</button>
-            <button type="button" :disabled="!modelReady" @click="hideAllNodes">全部隐藏</button>
+            <button type="button" :disabled="!modelReady" @click="toggleAllNodesVisibility">
+              {{ allNodesHidden ? '全部展示' : '全部隐藏' }}
+            </button>
           </div>
         </div>
         <div class="node-tools">
@@ -1822,7 +1915,6 @@ function createEmptyTransform() {
                 {{ node.displayName }}
               </span>
               <span class="node-meta">
-                <span v-if="node.mechanismRole" class="role-pill">{{ node.mechanismRole.label }}</span>
                 <span>{{ node.type }}</span>
               </span>
             </button>
@@ -1842,7 +1934,6 @@ function createEmptyTransform() {
                 @keydown.enter="$event.target.blur()"
               />
               <span class="node-meta">
-                <span v-if="node.mechanismRole" class="role-pill">{{ node.mechanismRole.label }}</span>
                 <span>{{ node.type }}</span>
               </span>
             </div>
@@ -1902,6 +1993,16 @@ function createEmptyTransform() {
         <span class="toolbar-divider" aria-hidden="true"></span>
         <button
           type="button"
+          :class="{ active: cameraMode === CAMERA_MODES.ORTHOGRAPHIC }"
+          :aria-pressed="cameraMode === CAMERA_MODES.ORTHOGRAPHIC"
+          :title="cameraModeButtonLabel"
+          @click="toggleCameraMode"
+        >
+          相机：{{ cameraModeText }}
+        </button>
+        <span class="toolbar-divider" aria-hidden="true"></span>
+        <button
+          type="button"
           :disabled="undoStack.length === 0"
           @click="undoModelEdit"
         >
@@ -1954,55 +2055,16 @@ function createEmptyTransform() {
           <button type="button" :disabled="!modelReady" @click="toggleModelTransparency">
             {{ isModelTransparent ? '关闭透明' : '透明模型' }}
           </button>
+          <button type="button" @click="toggleCameraMode">{{ cameraModeButtonLabel }}</button>
           <button type="button" @click="resetView">重置视角</button>
-          <button type="button" :disabled="!modelReady" @click="exportStructure">导出结构</button>
-          <button type="button" :disabled="!modelReady" @click="exportPose">导出姿态</button>
-          <button type="button" :disabled="!modelReady" @click="clearCurrentSessionState">清除会话</button>
-        </div>
-      </section>
-
-      <section class="info-section">
-        <h2>动作演示</h2>
-        <div class="motion-panel">
-          <div class="pose-upload-grid">
-            <label>
-              <span>{{ startPose ? '起始已导入' : '导入起始姿态' }}</span>
-              <input type="file" accept=".json,application/json" :disabled="!modelReady" @change="handlePoseFileChange($event, 'start')" />
-            </label>
-            <label>
-              <span>{{ endPose ? '结束已导入' : '导入结束姿态' }}</span>
-              <input type="file" accept=".json,application/json" :disabled="!modelReady" @change="handlePoseFileChange($event, 'end')" />
-            </label>
-          </div>
-          <div class="motion-progress-row">
-            <span>{{ canUsePoseMotion ? '姿态进度' : '进度' }}</span>
-            <strong>{{ Math.round(motionProgress * 100) }}%</strong>
-          </div>
-          <input
-            v-model.number="motionProgress"
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            :disabled="!modelReady"
-            @input="handleMotionProgressInput"
-          />
-          <div class="button-grid">
-            <button type="button" :disabled="!modelReady" @click="toggleMotionPlayback">
-              {{ isMotionPlaying ? '停止动作' : '播放动作' }}
-            </button>
-            <button type="button" :disabled="!modelReady" @click="resetMotionPose">回到初始</button>
-            <button type="button" :disabled="!startPose" @click="applyImportedPose('start')">应用起始</button>
-            <button type="button" :disabled="!endPose" @click="applyImportedPose('end')">应用结束</button>
-          </div>
-          <p class="motion-message">{{ motionMessage }}</p>
         </div>
       </section>
 
       <section class="info-section">
         <h2>模型信息</h2>
         <dl v-if="modelInfo" class="info-list">
-          <div><dt>文件名</dt><dd>{{ modelInfo.fileName }}</dd></div>
+          {{ modelInfo }}
+          <!-- <div><dt>文件名</dt><dd>{{ modelInfo }}</dd></div>
           <div><dt>大小</dt><dd>{{ modelInfo.fileSize }}</dd></div>
           <div><dt>节点</dt><dd>{{ modelInfo.nodeCount }}</dd></div>
           <div><dt>网格</dt><dd>{{ modelInfo.meshCount }}</dd></div>
@@ -2010,31 +2072,12 @@ function createEmptyTransform() {
           <div><dt>三角面</dt><dd>{{ modelInfo.triangleCount }}</dd></div>
           <div><dt>内置动画</dt><dd>{{ modelInfo.animationCount }}</dd></div>
           <div><dt>包围盒</dt><dd>{{ modelInfo.size }}</dd></div>
-          <div><dt>中心点</dt><dd>{{ modelInfo.center.join(', ') }}</dd></div>
+          <div><dt>中心点</dt><dd>{{ modelInfo.center.join(', ') }}</dd></div> -->
         </dl>
         <p v-else class="empty-text">加载模型后显示文件、网格、材质和包围盒信息。</p>
       </section>
 
-      <section class="info-section">
-        <h2>机构角色草案</h2>
-        <template v-if="roleSummaryRows.length">
-          <ul class="role-summary">
-            <li v-for="role in roleSummaryRows" :key="role.key">
-              <span>{{ role.label }}</span>
-              <strong>{{ role.type }}</strong>
-              <em>{{ role.nodeCount }} 个节点</em>
-            </li>
-          </ul>
-          <ul class="connection-list compact">
-            <li v-for="connection in CONNECTION_DRAFT" :key="`${connection.from}-${connection.to}`">
-              <strong>{{ connection.from }}</strong>
-              <span>→</span>
-              <strong>{{ connection.to }}</strong>
-            </li>
-          </ul>
-        </template>
-        <p v-else class="empty-text">加载模型后按节点名称自动生成角色草案。</p>
-      </section>
+
 
     </aside>
 
