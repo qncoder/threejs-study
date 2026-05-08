@@ -78,7 +78,7 @@ src/
 
 - 打开弹窗时，优先读取节点 `userData.controlScript`。
 - 没有绑定脚本时，按当前节点变换生成默认脚本。
-- `执行` 只运行编辑器里的内容，不自动保存。
+- `执行` 成功后会把编辑器里的内容保存到节点 `userData.controlScript`。
 - `保存绑定` 写入 `userData.controlScript`。
 - `清除绑定` 删除节点上的脚本绑定。
 

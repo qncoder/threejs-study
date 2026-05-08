@@ -4,6 +4,8 @@ const MOVE_DIRECTION = 1
 const AObject = node.getObjectByName('flap1_driving_shaft_pos')
 const BObject = node.getObjectByName('flap1_hydraulic_fixed_pos')
 const CObject = node.getObjectByName('flap1_hydraulic_slidingshaft_pos')
+const DObject = node.getObjectByName('flap1_output_shaft_pos')
+const EObject = node.getObjectByName('flap1_pos')
 function setWorldPosition(object, targetWorldPosition) {
   const localPosition = targetWorldPosition.clone()
   object.parent.updateWorldMatrix(true, true)
@@ -33,11 +35,20 @@ function getPointC(BC) {
     .add(B)
   return pointC
 }
-const nextBC = Init.BC - STEP * MOVE_DIRECTION
+const InitC = CObject.getWorldPosition(new THREE.Vector3())
+const InitD = DObject.getWorldPosition(new THREE.Vector3())
+const InitE = EObject.getWorldPosition(new THREE.Vector3())
+const DCVector = InitD.clone().sub(InitC)
+const nextBC = Init.BC - STEP*MOVE_DIRECTION
 const C = getPointC(nextBC)
 setWorldPosition(CObject, C)
+const D = C.clone().add(DCVector)
+setWorldPosition(DObject, D)
+
 node.updateWorldMatrix(true, true)
 node.updateMatrix()
 CObject.lookAt(BObject.getWorldPosition(new THREE.Vector3()))
 BObject.lookAt(CObject.getWorldPosition(new THREE.Vector3()))
 AObject.lookAt(CObject.getWorldPosition(new THREE.Vector3()))
+DObject.lookAt(CObject.getWorldPosition(new THREE.Vector3()))
+EObject.lookAt(DObject.getWorldPosition(new THREE.Vector3()))

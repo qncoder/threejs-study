@@ -97,9 +97,9 @@ import { clampPanelWidth } from './panelResize.js';
 import {
   bindNodeControlScript,
   clearNodeControlScript,
-  getBoundNodeControlScript,
-  hasBoundNodeControlScript,
-  runNodeControlScript,
+  createNodeScriptDialogState,
+  createTransformScript,
+  runAndBindNodeControlScript,
 } from './nodeScriptControl.js';
 import {
   CONNECTION_DRAFT,
@@ -526,6 +526,12 @@ function selectNode(uuid) {
   syncTransformDraftFromSelection();
   updateSelectionBox();
   closeContextMenu();
+  if (scriptDialog.value.open) {
+    updateScriptDialogForNode(uuid, {
+      x: scriptDialog.value.x,
+      y: scriptDialog.value.y,
+    });
+  }
 }
 
 async function copyNodeName(node) {
@@ -994,11 +1000,6 @@ function syncTransformDraftFromSelection() {
 }
 
 function openScriptDialog(uuid) {
-  const object = findObjectByUuid(uuid);
-  const row = nodeRows.value.find((node) => node.uuid === uuid);
-  if (!object || !row) return;
-
-  const currentTransform = cloneTransform(readNodeTransform(object));
   const position = clampDialogPosition({
     x: window.innerWidth - 820,
     y: 72,
@@ -1007,18 +1008,23 @@ function openScriptDialog(uuid) {
     dialogWidth: 760,
     dialogHeight: 560,
   });
-  scriptDialog.value = {
-    open: true,
+  updateScriptDialogForNode(uuid, position);
+}
+
+function updateScriptDialogForNode(uuid, position) {
+  const object = findObjectByUuid(uuid);
+  const row = nodeRows.value.find((node) => node.uuid === uuid);
+  if (!object || !row) return false;
+
+  const currentTransform = cloneTransform(readNodeTransform(object));
+  scriptDialog.value = createNodeScriptDialogState({
     nodeUuid: uuid,
-    nodeTitle: row.displayName,
-    nodeType: row.type,
-    nodePath: row.path,
-    script: getBoundNodeControlScript(object) || createTransformScript(currentTransform),
-    message: hasBoundNodeControlScript(object) ? '当前节点已绑定脚本。' : '可以编辑并执行当前节点脚本。',
-    messageType: 'hint',
-    x: position.x,
-    y: position.y,
-  };
+    node: object,
+    row,
+    transform: currentTransform,
+    position,
+  });
+  return true;
 }
 
 function closeScriptDialog() {
@@ -1114,7 +1120,7 @@ function executeDialogScript() {
     return false;
   }
 
-  const result = runNodeControlScript(object, scriptDialog.value.script, { scene });
+  const result = runAndBindNodeControlScript(object, scriptDialog.value.script, { scene });
   if (!result.ok) {
     updateScriptDialogMessage(`脚本执行失败：${result.error}`, 'error');
     return false;
@@ -1122,7 +1128,7 @@ function executeDialogScript() {
 
   refreshStructureAfterTransform();
   syncTransformDraftFromSelection();
-  updateScriptDialogMessage(`脚本已应用到节点：${object.name || '(未命名)'}`, 'success');
+  updateScriptDialogMessage(`脚本已应用并保存到节点：${object.name || '(未命名)'}`, 'success');
   status.value = scriptDialog.value.message;
   saveCurrentSessionState();
   return true;
@@ -1736,25 +1742,6 @@ function createEmptyTransform() {
   };
 }
 
-function createTransformScript(transform) {
-  const position = transform.position.map(formatScriptNumber).join(', ');
-  const rotation = transform.rotationDeg.map(formatScriptNumber).join(', ');
-  const scale = transform.scale.map(formatScriptNumber).join(', ');
-
-  return [
-    `setPosition(${position});`,
-    `setRotationDeg(${rotation});`,
-    `setScale(${scale});`,
-    '',
-    '// 也可以直接操作当前节点：',
-    '// node.position.y -= 10;',
-    '// node.rotation.z = deg(15);',
-  ].join('\n');
-}
-
-function formatScriptNumber(value) {
-  return Number.isFinite(value) ? Number(value.toFixed(4)) : 0;
-}
 </script>
 
 <template>

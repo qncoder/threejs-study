@@ -35,6 +35,13 @@ export function runNodeControlScript(node, script, context = {}) {
   }
 }
 
+export function runAndBindNodeControlScript(node, script, context = {}) {
+  const runResult = runNodeControlScript(node, script, context);
+  if (!runResult.ok) return runResult;
+
+  return bindNodeControlScript(node, script);
+}
+
 export function bindNodeControlScript(node, script) {
   if (!node) return { ok: false, error: '没有选中节点' };
 
@@ -61,6 +68,45 @@ export function hasBoundNodeControlScript(node) {
   return getBoundNodeControlScript(node).length > 0;
 }
 
+export function createNodeScriptDialogState({
+  nodeUuid,
+  node,
+  row,
+  transform,
+  position = { x: 72, y: 72 },
+}) {
+  const hasBoundScript = hasBoundNodeControlScript(node);
+
+  return {
+    open: true,
+    nodeUuid,
+    nodeTitle: row.displayName,
+    nodeType: row.type,
+    nodePath: row.path,
+    script: getBoundNodeControlScript(node) || createTransformScript(transform),
+    message: hasBoundScript ? '当前节点已绑定脚本。' : '可以编辑并执行当前节点脚本。',
+    messageType: 'hint',
+    x: position.x,
+    y: position.y,
+  };
+}
+
+export function createTransformScript(transform) {
+  const position = transform.position.map(formatScriptNumber).join(', ');
+  const rotation = transform.rotationDeg.map(formatScriptNumber).join(', ');
+  const scale = transform.scale.map(formatScriptNumber).join(', ');
+
+  return [
+    `setPosition(${position});`,
+    `setRotationDeg(${rotation});`,
+    `setScale(${scale});`,
+    '',
+    '// 也可以直接操作当前节点：',
+    '// node.position.y -= 10;',
+    '// node.rotation.z = deg(15);',
+  ].join('\n');
+}
+
 function createNodeHelpers(node) {
   return {
     setPosition: (x, y, z) => {
@@ -74,6 +120,10 @@ function createNodeHelpers(node) {
     },
     deg,
   };
+}
+
+function formatScriptNumber(value) {
+  return Number.isFinite(value) ? Number(value.toFixed(4)) : 0;
 }
 
 function deg(value) {
