@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   AmbientLight,
   Box3,
@@ -19,7 +19,7 @@ import {
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
-import defaultModelUrl from './F309.glb?url';
+import defaultModelUrl from './ZF18000.glb?url';
 import {
   CAMERA_MODES,
   createCameraFromCurrent,
@@ -36,6 +36,7 @@ import { createEditedGlbFileName, exportModelAsGlb } from './modelExport.js';
 import {
   captureOriginalNodeTransforms,
   cloneTransform,
+  createTransformDisplayRows,
   readNodeTransform,
   resetAllNodeTransforms,
   resetNodeTransform,
@@ -47,11 +48,11 @@ import {
 import {
   captureModelSessionState,
   clearModelSessionState,
-  ensureModelSessionNodeKeys,
   loadModelSessionState,
   restoreModelSessionState,
   saveModelSessionState,
 } from './modelSessionState.js';
+import { prepareLoadedModelStructure } from './modelLoadSetup.js';
 import {
   applyMechanismMotion,
   clampMotionProgress,
@@ -89,17 +90,22 @@ import {
   openNodeContextMenu,
 } from './nodeContextMenu.js';
 import {
-  clampDialogPosition,
+  clampDialogLayout,
   createDialogDragState,
+  createDialogResizeState,
   moveDialogByPointer,
+  resizeDialogByPointer,
   startDialogDrag,
+  startDialogResize,
   stopDialogDrag,
+  stopDialogResize,
 } from './dialogDrag.js';
 import { canDropNodeOnTarget } from './nodeDropRules.js';
 import { createNodeFocusTarget, applyNodeFocusTarget } from './nodeFocus.js';
 import { createNodeInfoSections } from './nodeInfoSections.js';
 import {
   areAllNodesHidden,
+  collectEffectivelyHiddenNodeUuids,
   createAllHiddenNodeSet,
   isNodeEffectivelyHidden,
   toggleHiddenNode,
@@ -120,12 +126,11 @@ import {
 import { getNodeDropPlacement, NODE_DROP_PLACEMENTS } from './nodeDropPlacement.js';
 import { copyNodeNameToClipboard } from './nodeClipboard.js';
 import {
-  createCodeLineNumbers,
   createCodeStats,
-  insertTextAtSelection,
-  isRunShortcut,
+  createScriptSnippetInsertion,
 } from './codeEditor.js';
 import { removeScriptDebugHelpers } from './scriptDebugHelpers.js';
+import ScriptCodeEditor from './ScriptCodeEditor.vue';
 
 const NODE_PREVIEW_LIMIT = 180;
 const MAX_UNDO_STEPS = 40;
@@ -135,9 +140,11 @@ const SCRIPT_SNIPPETS = [
   { label: '缩放', code: 'setScale(1, 1, 1);' },
   { label: '角度', code: 'node.rotation.y = deg(15);' },
 ];
+const SCRIPT_DIALOG_RESIZE_HANDLES = ['n', 'e', 's', 'w', 'ne', 'se', 'sw', 'nw'];
 const canvasHost = ref(null);
+const viewerPanelRef = ref(null);
 const scriptEditorRef = ref(null);
-const status = ref('正在加载默认模型 F309.glb');
+const status = ref('正在加载默认模型 ZF18000.glb');
 const isLoading = ref(false);
 const modelReady = ref(false);
 const modelInfo = ref(null);
@@ -164,11 +171,14 @@ const collapsedNodeUuids = ref(new Set());
 const hiddenNodeUuids = ref(new Set());
 const isSearchModelOnly = ref(false);
 const undoStack = ref([]);
-const structurePanelWidth = ref(320);
+const structurePanelWidth = ref(440);
 const nodeContextMenu = ref(createClosedNodeContextMenu());
 const scriptDialog = ref(createClosedScriptDialog());
+const scriptDialogLayout = ref(createDefaultScriptDialogLayout());
+const scriptDialogMaximizedLayout = ref(createDefaultScriptDialogLayout());
+const hasScriptDialogLayout = ref(false);
 const scriptDialogDrag = ref(createDialogDragState());
-const scriptEditorScrollTop = ref(0);
+const scriptDialogResize = ref(createDialogResizeState());
 const infoDialog = ref(createClosedInfoDialog());
 
 let scene;
@@ -210,6 +220,7 @@ const roleSummaryRows = computed(() =>
   })).filter((role) => role.nodeCount > 0),
 );
 const allNodesHidden = computed(() => areAllNodesHidden(currentModel, hiddenNodeUuids.value));
+const effectivelyHiddenNodeUuids = computed(() => collectEffectivelyHiddenNodeUuids(currentModel, hiddenNodeUuids.value));
 const nodeContextMenuItems = computed(() => getNodeContextMenuItems());
 const activeInfoNode = computed(() => nodeRows.value.find((node) => node.uuid === infoDialog.value.nodeUuid) ?? null);
 const activeInfoSections = computed(() => createNodeInfoSections(activeInfoNode.value));
@@ -217,8 +228,8 @@ const scriptDialogMessageClass = computed(() => ({
   error: scriptDialog.value.messageType === 'error',
   success: scriptDialog.value.messageType === 'success',
 }));
-const scriptEditorLineNumbers = computed(() => createCodeLineNumbers(scriptDialog.value.script));
 const scriptEditorStats = computed(() => createCodeStats(scriptDialog.value.script));
+const transformDisplayRows = computed(() => createTransformDisplayRows(transformDraft.value));
 const canUsePoseMotion = computed(() => Boolean(startPose.value && endPose.value));
 const cameraModeButtonLabel = computed(() =>
   cameraMode.value === CAMERA_MODES.ORTHOGRAPHIC ? '切换透视' : '切换正交',
@@ -229,6 +240,25 @@ const cameraModeText = computed(() =>
 const appShellStyle = computed(() => ({
   '--structure-panel-width': `${structurePanelWidth.value}px`,
 }));
+const scriptDialogStyle = computed(() => {
+  const layout = scriptDialog.value.maximized
+    ? scriptDialogMaximizedLayout.value
+    : scriptDialogLayout.value;
+
+  return {
+    left: `${layout.x}px`,
+    top: `${layout.y}px`,
+    width: `${layout.width}px`,
+    height: `${layout.height}px`,
+  };
+});
+const scriptDialogBadgeStyle = computed(() => {
+  const bounds = getViewerPanelBounds();
+  return {
+    right: `${Math.max(16, window.innerWidth - bounds.x - bounds.width + 16)}px`,
+    bottom: `${Math.max(16, window.innerHeight - bounds.y - bounds.height + 16)}px`,
+  };
+});
 
 onMounted(() => {
   setupScene();
@@ -247,6 +277,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('pointerup', stopStructureResize);
   window.removeEventListener('pointermove', handleScriptDialogDragMove);
   window.removeEventListener('pointerup', stopScriptDialogDrag);
+  window.removeEventListener('pointermove', handleScriptDialogResizeMove);
+  window.removeEventListener('pointerup', stopScriptDialogResize);
   cancelScheduledSessionSave();
   transformControls?.dispose();
   controls?.dispose();
@@ -285,7 +317,7 @@ async function handleFileChange(event) {
 
 async function loadDefaultModel() {
   isLoading.value = true;
-  status.value = '正在加载默认模型 F309.glb';
+  status.value = '正在加载默认模型 ZF18000.glb';
 
   try {
     const response = await fetch(defaultModelUrl);
@@ -295,7 +327,7 @@ async function loadDefaultModel() {
 
     const arrayBuffer = await response.arrayBuffer();
     parseGlb(arrayBuffer, {
-      name: 'F309.glb',
+      name: 'ZF18000.glb',
       size: Number(response.headers.get('content-length')) || arrayBuffer.byteLength,
     });
   } catch (error) {
@@ -317,7 +349,10 @@ function parseGlb(arrayBuffer, file) {
       scene.add(currentModel);
       prepareMaterialStates(currentModel);
       currentModel.updateWorldMatrix(true, true);
-      ensureModelSessionNodeKeys(currentModel);
+      const { sessionResult, meshObjectResult } = prepareLoadedModelStructure(
+        currentModel,
+        restoreCurrentSessionState,
+      );
 
       modelInfo.value = collectModelInfo(currentModel, currentGltfMeta, currentFileMeta);
       nodeRows.value = collectRoleNodeRows(currentModel);
@@ -328,20 +363,12 @@ function parseGlb(arrayBuffer, file) {
       endPose.value = null;
       undoStack.value = [];
       motionMessage.value = '动作演示会按节点名称驱动，不使用手动标点。';
-      selectedNodeUuid.value = nodeRows.value[0]?.uuid ?? '';
+      selectedNodeUuid.value = findObjectByUuid(selectedNodeUuid.value)
+        ? selectedNodeUuid.value
+        : nodeRows.value[0]?.uuid ?? '';
       modelReady.value = nodeRows.value.length > 0;
       pruneCollapsedNodeUuids();
       pruneHiddenNodeUuids();
-      const sessionResult = restoreCurrentSessionState();
-      if (sessionResult.restored > 0) {
-        modelInfo.value = collectModelInfo(currentModel, currentGltfMeta, currentFileMeta);
-        nodeRows.value = collectRoleNodeRows(currentModel);
-        pruneCollapsedNodeUuids();
-        pruneHiddenNodeUuids();
-        if (!findObjectByUuid(selectedNodeUuid.value)) {
-          selectedNodeUuid.value = nodeRows.value[0]?.uuid ?? '';
-        }
-      }
 
       fitCameraToModel(currentModel);
       applyModelAppearance();
@@ -349,9 +376,12 @@ function parseGlb(arrayBuffer, file) {
       updateSelectionBox();
 
       isLoading.value = false;
+      const meshObjectMessage = meshObjectResult.created > 0
+        ? `，已自动新增 ${meshObjectResult.created} 个 Object3D`
+        : '';
       status.value = sessionResult.restored > 0
-        ? `加载成功：${file.name}，已恢复当前会话保存的模型编辑`
-        : `加载成功：${file.name}，共 ${nodeRows.value.length} 个节点`;
+        ? `加载成功：${file.name}，已恢复当前会话保存的模型编辑${meshObjectMessage}`
+        : `加载成功：${file.name}，共 ${nodeRows.value.length} 个节点${meshObjectMessage}`;
     },
     (error) => {
       isLoading.value = false;
@@ -556,10 +586,7 @@ function selectNode(uuid) {
   updateSelectionBox();
   closeContextMenu();
   if (scriptDialog.value.open) {
-    updateScriptDialogForNode(uuid, {
-      x: scriptDialog.value.x,
-      y: scriptDialog.value.y,
-    });
+    updateScriptDialogForNode(uuid);
   }
 }
 
@@ -768,13 +795,14 @@ function toggleNodeCollapse(node) {
 }
 
 function isNodeHidden(node) {
-  return hiddenNodeUuids.value.has(node.uuid);
+  return effectivelyHiddenNodeUuids.value.has(node.uuid);
 }
 
 function toggleNodeVisibility(node) {
   const object = findObjectByUuid(node.uuid);
   if (!object || object === currentModel) return;
 
+  const wasHidden = isNodeEffectivelyHidden(object, hiddenNodeUuids.value, currentModel);
   hiddenNodeUuids.value = toggleHiddenNode(object, hiddenNodeUuids.value);
   applyModelAppearance();
 
@@ -784,9 +812,14 @@ function toggleNodeVisibility(node) {
     updateSelectionBox();
   }
 
-  status.value = hiddenNodeUuids.value.has(node.uuid)
-    ? `已隐藏节点：${node.displayName}`
-    : `已显示节点：${node.displayName}`;
+  const isHidden = isNodeEffectivelyHidden(object, hiddenNodeUuids.value, currentModel);
+  if (isHidden) {
+    status.value = wasHidden && !hiddenNodeUuids.value.has(node.uuid)
+      ? `父级已隐藏，当前节点仍不可见：${node.displayName}`
+      : `已隐藏节点：${node.displayName}`;
+  } else {
+    status.value = `已显示节点：${node.displayName}`;
+  }
   saveCurrentSessionState();
 }
 
@@ -1053,67 +1086,125 @@ function syncTransformDraftFromSelection() {
 }
 
 function openScriptDialog(uuid) {
-  const position = clampDialogPosition({
-    x: window.innerWidth - 820,
-    y: 72,
-    viewportWidth: window.innerWidth,
-    viewportHeight: window.innerHeight,
-    dialogWidth: 760,
-    dialogHeight: 560,
-  });
-  updateScriptDialogForNode(uuid, position);
+  if (!updateScriptDialogForNode(uuid)) return;
+
+  if (!hasScriptDialogLayout.value) {
+    scriptDialogLayout.value = createInitialScriptDialogLayout();
+    hasScriptDialogLayout.value = true;
+  }
+  scriptDialog.value = {
+    ...scriptDialog.value,
+    minimized: false,
+  };
+  scriptDialogLayout.value = clampScriptDialogLayout(scriptDialogLayout.value);
 }
 
-function updateScriptDialogForNode(uuid, position) {
+function updateScriptDialogForNode(uuid) {
   const object = findObjectByUuid(uuid);
   const row = nodeRows.value.find((node) => node.uuid === uuid);
   if (!object || !row) return false;
 
+  const currentState = scriptDialog.value;
   const currentTransform = cloneTransform(readNodeTransform(object));
   scriptDialog.value = createNodeScriptDialogState({
     nodeUuid: uuid,
     node: object,
     row,
     transform: currentTransform,
-    position,
   });
+  scriptDialog.value = {
+    ...scriptDialog.value,
+    minimized: currentState.minimized,
+    transparent: currentState.transparent,
+    maximized: false,
+  };
   return true;
 }
 
 function closeScriptDialog() {
   stopScriptDialogDrag();
-  scriptDialog.value = createClosedScriptDialog();
+  stopScriptDialogResize();
+  scriptDialog.value = {
+    ...scriptDialog.value,
+    open: false,
+    minimized: false,
+    maximized: false,
+  };
+}
+
+function minimizeScriptDialog() {
+  scriptDialog.value = {
+    ...scriptDialog.value,
+    minimized: true,
+    maximized: false,
+  };
+}
+
+function restoreScriptDialogFromBadge() {
+  scriptDialog.value = {
+    ...scriptDialog.value,
+    minimized: false,
+  };
+  scriptDialogLayout.value = clampScriptDialogLayout(scriptDialogLayout.value);
+}
+
+function toggleScriptDialogTransparency() {
+  scriptDialog.value = {
+    ...scriptDialog.value,
+    transparent: !scriptDialog.value.transparent,
+  };
+}
+
+function toggleScriptDialogMaximized() {
+  if (scriptDialog.value.maximized) {
+    scriptDialog.value = {
+      ...scriptDialog.value,
+      maximized: false,
+    };
+    scriptDialogLayout.value = clampScriptDialogLayout(scriptDialogLayout.value);
+    return;
+  }
+
+  scriptDialogMaximizedLayout.value = createMaximizedScriptDialogLayout();
+  scriptDialog.value = {
+    ...scriptDialog.value,
+    minimized: false,
+    maximized: true,
+  };
 }
 
 function startScriptDialogDrag(event) {
-  if (event.button !== 0) return;
+  if (event.button !== 0 || scriptDialog.value.maximized) return;
 
   event.preventDefault();
   scriptDialogDrag.value = startDialogDrag({
     pointerX: event.clientX,
     pointerY: event.clientY,
-    dialogX: scriptDialog.value.x,
-    dialogY: scriptDialog.value.y,
+    dialogX: scriptDialogLayout.value.x,
+    dialogY: scriptDialogLayout.value.y,
   });
   window.addEventListener('pointermove', handleScriptDialogDragMove);
   window.addEventListener('pointerup', stopScriptDialogDrag);
 }
 
 function handleScriptDialogDragMove(event) {
+  const layout = scriptDialog.value.maximized
+    ? scriptDialogMaximizedLayout.value
+    : scriptDialogLayout.value;
   const position = moveDialogByPointer(scriptDialogDrag.value, {
     pointerX: event.clientX,
     pointerY: event.clientY,
     viewportWidth: window.innerWidth,
     viewportHeight: window.innerHeight,
-    dialogWidth: 760,
-    dialogHeight: 560,
+    dialogWidth: layout.width,
+    dialogHeight: layout.height,
   });
   if (!position) return;
 
-  scriptDialog.value = {
-    ...scriptDialog.value,
+  scriptDialogLayout.value = clampScriptDialogLayout({
+    ...scriptDialogLayout.value,
     ...position,
-  };
+  });
 }
 
 function stopScriptDialogDrag() {
@@ -1122,47 +1213,119 @@ function stopScriptDialogDrag() {
   window.removeEventListener('pointerup', stopScriptDialogDrag);
 }
 
-function handleScriptEditorKeydown(event) {
-  if (isRunShortcut(event)) {
-    event.preventDefault();
-    executeDialogScript();
-    return;
-  }
-
-  if (event.key !== 'Tab') return;
+function startScriptDialogResize(event, handle) {
+  if (event.button !== 0 || scriptDialog.value.maximized) return;
 
   event.preventDefault();
-  insertScriptText('  ');
+  scriptDialogResize.value = startDialogResize({
+    handle,
+    pointerX: event.clientX,
+    pointerY: event.clientY,
+    layout: scriptDialogLayout.value,
+  });
+  window.addEventListener('pointermove', handleScriptDialogResizeMove);
+  window.addEventListener('pointerup', stopScriptDialogResize);
 }
 
-function insertScriptSnippet(snippet) {
-  insertScriptText(`${scriptDialog.value.script.trim() ? '\n' : ''}${snippet.code}`);
+function handleScriptDialogResizeMove(event) {
+  const nextLayout = resizeDialogByPointer(scriptDialogResize.value, {
+    pointerX: event.clientX,
+    pointerY: event.clientY,
+    bounds: getViewportBounds(),
+    minWidth: getScriptDialogMinWidth(),
+    minHeight: 360,
+    maxWidth: window.innerWidth - 32,
+    maxHeight: window.innerHeight - 32,
+  });
+  if (!nextLayout) return;
+
+  scriptDialogLayout.value = nextLayout;
 }
 
-function insertScriptText(text) {
-  const editor = scriptEditorRef.value;
-  const result = insertTextAtSelection(
-    scriptDialog.value.script,
-    editor?.selectionStart ?? scriptDialog.value.script.length,
-    editor?.selectionEnd ?? scriptDialog.value.script.length,
-    text,
-  );
+function stopScriptDialogResize() {
+  scriptDialogResize.value = stopDialogResize();
+  window.removeEventListener('pointermove', handleScriptDialogResizeMove);
+  window.removeEventListener('pointerup', stopScriptDialogResize);
+}
 
-  scriptDialog.value = {
-    ...scriptDialog.value,
-    script: result.value,
-  };
-
-  nextTick(() => {
-    if (!scriptEditorRef.value) return;
-
-    scriptEditorRef.value.focus();
-    scriptEditorRef.value.setSelectionRange(result.selectionStart, result.selectionEnd);
+function clampScriptDialogLayout(layout) {
+  return clampDialogLayout({
+    ...layout,
+    bounds: getViewportBounds(),
+    minWidth: getScriptDialogMinWidth(),
+    minHeight: 360,
+    maxWidth: window.innerWidth - 32,
+    maxHeight: window.innerHeight - 32,
   });
 }
 
-function handleScriptEditorScroll(event) {
-  scriptEditorScrollTop.value = event.target.scrollTop;
+function createMaximizedScriptDialogLayout() {
+  const bounds = getViewerPanelBounds();
+  return {
+    x: bounds.x + 12,
+    y: bounds.y + 12,
+    width: Math.max(320, bounds.width - 24),
+    height: Math.max(360, bounds.height - 24),
+  };
+}
+
+function getScriptDialogMinWidth() {
+  return Math.min(480, Math.max(320, window.innerWidth - 32));
+}
+
+function getViewerPanelBounds() {
+  const rect = viewerPanelRef.value?.getBoundingClientRect?.();
+  if (!rect) return getViewportBounds();
+
+  return {
+    x: rect.left,
+    y: rect.top,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+function getViewportBounds() {
+  return {
+    x: 0,
+    y: 0,
+    width: window.innerWidth,
+    height: window.innerHeight,
+  };
+}
+
+function createDefaultScriptDialogLayout() {
+  return {
+    x: 72,
+    y: 72,
+    width: 760,
+    height: 560,
+  };
+}
+
+function createInitialScriptDialogLayout() {
+  const bounds = getViewerPanelBounds();
+  const width = Math.min(760, Math.max(getScriptDialogMinWidth(), bounds.width - 32));
+  const height = Math.min(760, Math.max(360, bounds.height - 32));
+  return clampScriptDialogLayout({
+    x: bounds.x + bounds.width - width - 16,
+    y: bounds.y + 16,
+    width,
+    height,
+  });
+}
+
+function insertScriptSnippet(snippet) {
+  insertScriptText(createScriptSnippetInsertion(scriptDialog.value.script, snippet.code));
+}
+
+function insertScriptText(text) {
+  if (scriptEditorRef.value?.insertText(text)) return;
+
+  scriptDialog.value = {
+    ...scriptDialog.value,
+    script: `${scriptDialog.value.script}${text}`,
+  };
 }
 
 function executeDialogScript() {
@@ -1811,8 +1974,9 @@ function createClosedScriptDialog() {
     script: '',
     message: '',
     messageType: 'hint',
-    x: 72,
-    y: 72,
+    minimized: false,
+    transparent: true,
+    maximized: false,
   };
 }
 
@@ -1835,15 +1999,16 @@ function createEmptyTransform() {
 </script>
 
 <template>
-  <main class="app-shell" :style="appShellStyle" @click="closeContextMenu">
+  <main
+    class="app-shell"
+    :style="appShellStyle"
+    @click="closeContextMenu"
+  >
     <aside class="structure-panel">
       <section class="info-section node-section">
         <div class="section-title-row">
           <h2>节点列表</h2>
           <div class="node-title-actions">
-            <button type="button" :disabled="!modelReady" @click="addPartObject3D">新建 Object3D</button>
-            <button type="button" :disabled="!modelReady" @click="initializeMeshObjects">初始化 Object</button>
-            <button type="button" :disabled="!modelReady" @click="exportEditedModel">导出模型</button>
             <button type="button" :disabled="!modelReady" @click="refreshStructure">刷新</button>
             <button type="button" :disabled="!modelReady" @click="toggleAllNodesVisibility">
               {{ allNodesHidden ? '全部展示' : '全部隐藏' }}
@@ -1904,6 +2069,28 @@ function createEmptyTransform() {
             >
               {{ isNodeCollapsed(node.uuid) ? '▶' : '▼' }}
             </button>
+            <span class="node-type-icon" :title="node.type" aria-hidden="true">
+              <svg v-if="node.type === 'Mesh'" viewBox="0 0 24 24">
+                <path d="M12 3 4.5 7.2 12 11.4l7.5-4.2L12 3Z" />
+                <path d="M4.5 7.2v8.4L12 20l7.5-4.4V7.2" />
+                <path d="M12 11.4V20" />
+              </svg>
+              <svg v-else-if="node.type === 'Group'" viewBox="0 0 24 24">
+                <path d="M3.5 6.5h6l2 2h9v9.8a1.7 1.7 0 0 1-1.7 1.7H5.2a1.7 1.7 0 0 1-1.7-1.7V6.5Z" />
+                <path d="M3.5 6.5V5.2c0-.7.6-1.2 1.3-1.2h4.5l2 2" />
+              </svg>
+              <svg v-else-if="node.type === 'Bone'" viewBox="0 0 24 24">
+                <path d="M6.5 8.5a2.4 2.4 0 1 1 3.4-3.4l9 9a2.4 2.4 0 1 1-3.4 3.4l-9-9Z" />
+                <path d="M4.7 10.3a2 2 0 1 1 3.1-2.5" />
+                <path d="M16.2 16.2a2 2 0 1 1-2.5 3.1" />
+              </svg>
+              <svg v-else-if="node.type === 'Object3D'" viewBox="0 0 24 24">
+                <path d="M3.5 6.5h6l2 2h9v9.8a1.7 1.7 0 0 1-1.7 1.7H5.2a1.7 1.7 0 0 1-1.7-1.7V6.5Z" />
+              </svg>
+              <svg v-else viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="6.5" />
+              </svg>
+            </span>
             <button
               v-if="!canRenameNode(node)"
               type="button"
@@ -1977,94 +2164,138 @@ function createEmptyTransform() {
       @pointerdown.prevent="startStructureResize"
     ></div>
 
-    <section class="viewer-panel">
+    <section ref="viewerPanelRef" class="viewer-panel">
       <div class="canvas-transform-toolbar" aria-label="节点变换工具" @pointerdown.stop @click.stop>
-        <button
-          v-for="mode in TRANSFORM_MODES"
-          :key="mode.key"
-          type="button"
-          :class="{ active: transformControlMode === mode.key }"
-          :disabled="!selectedNode"
-          :aria-pressed="transformControlMode === mode.key"
-          @click="setTransformControlMode(mode.key)"
-        >
-          {{ mode.label }}
-        </button>
+        <div class="toolbar-group" aria-label="变换模式">
+          <button
+            v-for="mode in TRANSFORM_MODES"
+            :key="mode.key"
+            type="button"
+            :class="{ active: transformControlMode === mode.key }"
+            :disabled="!selectedNode"
+            :aria-pressed="transformControlMode === mode.key"
+            @click="setTransformControlMode(mode.key)"
+          >
+            {{ mode.label }}
+          </button>
+        </div>
         <span class="toolbar-divider" aria-hidden="true"></span>
-        <button
-          type="button"
-          :class="{ active: cameraMode === CAMERA_MODES.ORTHOGRAPHIC }"
-          :aria-pressed="cameraMode === CAMERA_MODES.ORTHOGRAPHIC"
-          :title="cameraModeButtonLabel"
-          @click="toggleCameraMode"
-        >
-          相机：{{ cameraModeText }}
-        </button>
+        <div class="toolbar-group" aria-label="显示控制">
+          <button type="button" :class="{ active: isWireframe }" :disabled="!modelReady" @click="toggleWireframe">
+            {{ isWireframe ? '关闭线框' : '线框' }}
+          </button>
+          <button type="button" :class="{ active: showGrid }" @click="toggleGrid">
+            {{ showGrid ? '网格' : '显示网格' }}
+          </button>
+          <button type="button" :class="{ active: isModelTransparent }" :disabled="!modelReady" @click="toggleModelTransparency">
+            {{ isModelTransparent ? '关闭透明' : '透明' }}
+          </button>
+          <button type="button" :class="{ active: showModel }" :disabled="!modelReady" @click="toggleModelVisibility">
+            {{ showModel ? '隐藏模型' : '显示模型' }}
+          </button>
+        </div>
         <span class="toolbar-divider" aria-hidden="true"></span>
-        <button
-          type="button"
-          :disabled="undoStack.length === 0"
-          @click="undoModelEdit"
-        >
-          返回上一步
-        </button>
-        <button
-          type="button"
-          :disabled="!selectedNode"
-          @click="resetSelectedNodeTransform"
-        >
-          局部重置
-        </button>
-        <button
-          type="button"
-          :disabled="!modelReady"
-          @click="resetModelTransform"
-        >
-          重置
-        </button>
+        <div class="toolbar-group" aria-label="相机">
+          <button
+            type="button"
+            :class="{ active: cameraMode === CAMERA_MODES.ORTHOGRAPHIC }"
+            :aria-pressed="cameraMode === CAMERA_MODES.ORTHOGRAPHIC"
+            :title="cameraModeButtonLabel"
+            @click="toggleCameraMode"
+          >
+            相机：{{ cameraModeText }}
+          </button>
+        </div>
+        <span class="toolbar-divider" aria-hidden="true"></span>
+        <div class="toolbar-group" aria-label="操作">
+          <button
+            type="button"
+            :disabled="undoStack.length === 0"
+            @click="undoModelEdit"
+          >
+            撤销
+          </button>
+          <button
+            type="button"
+            :disabled="!selectedNode"
+            @click="resetSelectedNodeTransform"
+          >
+            局部重置
+          </button>
+          <button
+            type="button"
+            :disabled="!modelReady"
+            @click="resetModelTransform"
+          >
+            重置
+          </button>
+        </div>
+        <span class="toolbar-divider" aria-hidden="true"></span>
+        <div class="toolbar-group" aria-label="节点操作">
+          <button type="button" :disabled="!modelReady" @click="addPartObject3D">
+            新建
+          </button>
+          <button type="button" :disabled="!modelReady" @click="initializeMeshObjects">
+            初始化
+          </button>
+        </div>
       </div>
       <div ref="canvasHost" class="canvas-host" aria-label="GLB 模型预览窗口"></div>
     </section>
 
     <aside class="side-panel">
-      <header class="panel-header">
-        <p class="eyebrow">GLB Model Structure</p>
-        <h1>模型结构查看器</h1>
-        <p>先看清节点、网格、材质和层级关系，再做后续模型操作。</p>
-      </header>
-
-      <label class="file-picker">
-        <span>选择本地 GLB 文件</span>
-        <input type="file" accept=".glb,model/gltf-binary" @change="handleFileChange" />
-      </label>
-
-      <div class="status-line" :class="{ loading: isLoading }">{{ status }}</div>
-
       <section class="info-section">
-        <h2>查看控制</h2>
-        <div class="button-grid">
-          <button type="button" :disabled="!modelReady" @click="toggleWireframe">
-            {{ isWireframe ? '关闭线框' : '线框模式' }}
-          </button>
-          <button type="button" @click="toggleGrid">
-            {{ showGrid ? '隐藏网格' : '显示网格' }}
-          </button>
-          <button type="button" :disabled="!modelReady" @click="toggleModelVisibility">
-            {{ showModel ? '隐藏模型' : '显示模型' }}
-          </button>
-          <button type="button" :disabled="!modelReady" @click="toggleModelTransparency">
-            {{ isModelTransparent ? '关闭透明' : '透明模型' }}
-          </button>
-          <button type="button" @click="toggleCameraMode">{{ cameraModeButtonLabel }}</button>
-          <button type="button" @click="resetView">重置视角</button>
+        <h2>文件操作</h2>
+        <label class="file-picker">
+          <span>选择本地 GLB 文件</span>
+          <input type="file" accept=".glb,model/gltf-binary" @change="handleFileChange" />
+        </label>
+        <div class="status-line" :class="{ loading: isLoading }">{{ status }}</div>
+        <div class="button-grid file-actions">
+          <button type="button" :disabled="!modelReady" @click="exportEditedModel">导出模型</button>
+          <button type="button" @click="clearCurrentSessionState">清除会话</button>
         </div>
       </section>
 
       <section class="info-section">
-        <h2>模型信息</h2>
+        <h2>选中节点变换</h2>
+        <div v-if="selectedNode" class="selected-node-panel">
+          <p class="selected-node-title">{{ selectedNode.displayName }}</p>
+          <div class="transform-readout">
+            <div class="transform-readout-head" aria-hidden="true">
+              <span></span>
+              <span>X</span>
+              <span>Y</span>
+              <span>Z</span>
+            </div>
+            <div
+              v-for="row in transformDisplayRows"
+              :key="row.key"
+              class="transform-readout-row"
+            >
+              <strong>{{ row.label }}</strong>
+              <span v-for="(value, index) in row.values" :key="`${row.key}-${index}`">{{ value }}</span>
+            </div>
+          </div>
+          <div class="button-grid selected-node-actions">
+            <button type="button" @click="openScriptDialog(selectedNode.uuid)">编辑脚本</button>
+            <button type="button" @click="focusNodeByUuid(selectedNode.uuid)">聚焦</button>
+          </div>
+        </div>
+        <p v-else class="empty-text">选中节点后显示位置、角度和缩放。</p>
+      </section>
+
+      <section class="info-section">
+        <h2>查看控制</h2>
+        <div class="button-grid">
+          <button type="button" @click="resetView">重置视角</button>
+        </div>
+      </section>
+
+      <details class="info-section info-details">
+        <summary>模型信息</summary>
         <dl v-if="modelInfo" class="info-list">
-          {{ modelInfo }}
-          <!-- <div><dt>文件名</dt><dd>{{ modelInfo }}</dd></div>
+          <div><dt>文件名</dt><dd>{{ modelInfo.fileName }}</dd></div>
           <div><dt>大小</dt><dd>{{ modelInfo.fileSize }}</dd></div>
           <div><dt>节点</dt><dd>{{ modelInfo.nodeCount }}</dd></div>
           <div><dt>网格</dt><dd>{{ modelInfo.meshCount }}</dd></div>
@@ -2072,14 +2303,89 @@ function createEmptyTransform() {
           <div><dt>三角面</dt><dd>{{ modelInfo.triangleCount }}</dd></div>
           <div><dt>内置动画</dt><dd>{{ modelInfo.animationCount }}</dd></div>
           <div><dt>包围盒</dt><dd>{{ modelInfo.size }}</dd></div>
-          <div><dt>中心点</dt><dd>{{ modelInfo.center.join(', ') }}</dd></div> -->
+          <div><dt>中心点</dt><dd>{{ modelInfo.center.join(', ') }}</dd></div>
         </dl>
         <p v-else class="empty-text">加载模型后显示文件、网格、材质和包围盒信息。</p>
-      </section>
-
-
-
+      </details>
     </aside>
+
+    <section
+      v-if="scriptDialog.open && !scriptDialog.minimized"
+      class="modal-panel script-modal floating-script-modal"
+      :class="{
+        transparent: scriptDialog.transparent,
+        maximized: scriptDialog.maximized,
+      }"
+      :style="scriptDialogStyle"
+      @click.stop
+    >
+      <header class="modal-header draggable-modal-header" @pointerdown="startScriptDialogDrag">
+        <div>
+          <h2>编辑脚本</h2>
+          <p>{{ scriptDialog.nodeTitle }} / {{ scriptDialog.nodeType }}</p>
+        </div>
+        <div class="script-window-actions">
+          <button type="button" @pointerdown.stop @click="toggleScriptDialogTransparency">
+            {{ scriptDialog.transparent ? '不透明' : '透明' }}
+          </button>
+          <button type="button" title="最小化" aria-label="最小化脚本窗口" @pointerdown.stop @click="minimizeScriptDialog">—</button>
+          <button type="button" @pointerdown.stop @click="toggleScriptDialogMaximized">
+            {{ scriptDialog.maximized ? '还原' : '最大化' }}
+          </button>
+          <button type="button" title="关闭" aria-label="关闭脚本窗口" @pointerdown.stop @click="closeScriptDialog">×</button>
+        </div>
+      </header>
+      <p class="modal-path">{{ scriptDialog.nodePath }}</p>
+      <div class="code-toolbar" aria-label="脚本快捷插入">
+        <span>插入</span>
+        <button
+          v-for="snippet in SCRIPT_SNIPPETS"
+          :key="snippet.label"
+          type="button"
+          @pointerdown.stop
+          @click="insertScriptSnippet(snippet)"
+        >
+          {{ snippet.label }}
+        </button>
+        <em>{{ scriptEditorStats.lines }} 行 / {{ scriptEditorStats.chars }} 字符</em>
+      </div>
+      <div class="code-editor-shell">
+        <ScriptCodeEditor
+          ref="scriptEditorRef"
+          v-model="scriptDialog.script"
+          aria-label="节点 JS 脚本"
+          @run="executeDialogScript"
+        />
+      </div>
+      <p class="code-help">可用：node、scene、THREE、setPosition(x,y,z)、setRotationDeg(x,y,z)、setScale(x,y,z)、deg(角度)。按 Ctrl/Command + Enter 执行。</p>
+      <div class="modal-actions">
+        <button type="button" @click="executeDialogScript">执行</button>
+        <button type="button" @click="saveDialogScript">保存绑定</button>
+        <button type="button" @click="clearDialogScript">清除绑定</button>
+        <button type="button" @click="hideScriptTriangleHelpers">隐藏三角形</button>
+        <button type="button" @click="resetScriptCanvasHelpers">重置画布</button>
+      </div>
+      <p class="transform-message" :class="scriptDialogMessageClass">{{ scriptDialog.message }}</p>
+      <span
+        v-for="handle in SCRIPT_DIALOG_RESIZE_HANDLES"
+        :key="handle"
+        class="script-resize-handle"
+        :class="`handle-${handle}`"
+        aria-hidden="true"
+        @pointerdown.stop.prevent="startScriptDialogResize($event, handle)"
+      ></span>
+    </section>
+
+    <button
+      v-if="scriptDialog.open && scriptDialog.minimized"
+      type="button"
+      class="script-dialog-badge"
+      :style="scriptDialogBadgeStyle"
+      @click.stop="restoreScriptDialogFromBadge"
+    >
+      <span>{{ scriptDialog.nodeTitle }}</span>
+      <strong>编辑脚本</strong>
+    </button>
 
     <div
       v-if="nodeContextMenu.open"
@@ -2096,65 +2402,6 @@ function createEmptyTransform() {
         {{ item.label }}
       </button>
     </div>
-
-    <section
-      v-if="scriptDialog.open"
-      class="modal-panel script-modal floating-script-modal"
-      :style="{ left: `${scriptDialog.x}px`, top: `${scriptDialog.y}px` }"
-      @click.stop
-    >
-        <header class="modal-header draggable-modal-header" @pointerdown="startScriptDialogDrag">
-          <div>
-            <h2>编辑脚本</h2>
-            <p>{{ scriptDialog.nodeTitle }} / {{ scriptDialog.nodeType }}</p>
-          </div>
-          <button type="button" @pointerdown.stop @click="closeScriptDialog">关闭</button>
-        </header>
-        <p class="modal-path">{{ scriptDialog.nodePath }}</p>
-        <div class="code-toolbar" aria-label="脚本快捷插入">
-          <span>插入</span>
-          <button
-            v-for="snippet in SCRIPT_SNIPPETS"
-            :key="snippet.label"
-            type="button"
-            @pointerdown.stop
-            @click="insertScriptSnippet(snippet)"
-          >
-            {{ snippet.label }}
-          </button>
-          <em>{{ scriptEditorStats.lines }} 行 / {{ scriptEditorStats.chars }} 字符</em>
-        </div>
-        <div class="code-editor-shell">
-          <ol
-            class="code-line-numbers"
-            aria-hidden="true"
-            :style="{ transform: `translateY(-${scriptEditorScrollTop}px)` }"
-          >
-            <li v-for="lineNumber in scriptEditorLineNumbers" :key="lineNumber">{{ lineNumber }}</li>
-          </ol>
-          <textarea
-            ref="scriptEditorRef"
-            v-model="scriptDialog.script"
-            class="code-editor"
-            spellcheck="false"
-            autocomplete="off"
-            autocapitalize="off"
-            aria-label="节点 JS 脚本"
-            @keydown="handleScriptEditorKeydown"
-            @scroll="handleScriptEditorScroll"
-          ></textarea>
-        </div>
-        <p class="code-help">可用：node、scene、THREE、setPosition(x,y,z)、setRotationDeg(x,y,z)、setScale(x,y,z)、deg(角度)。按 Ctrl/Command + Enter 执行。</p>
-        <div class="modal-actions">
-          <button type="button" @click="executeDialogScript">执行</button>
-          <button type="button" @click="saveDialogScript">保存绑定</button>
-          <button type="button" @click="clearDialogScript">清除绑定</button>
-          <button type="button" @click="hideScriptTriangleHelpers">隐藏三角形</button>
-          <button type="button" @click="resetScriptCanvasHelpers">重置画布</button>
-          <button type="button" @click="closeScriptDialog">关闭</button>
-        </div>
-        <p class="transform-message" :class="scriptDialogMessageClass">{{ scriptDialog.message }}</p>
-    </section>
 
     <div v-if="infoDialog.open" class="modal-backdrop" @click.self="closeInfoDialog">
       <section class="modal-panel info-modal" @click.stop>

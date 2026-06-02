@@ -26,7 +26,7 @@ export function areAllNodesHidden(root, hiddenNodeUuids) {
     if (node === root || !node.uuid) return;
 
     hasTarget = true;
-    if (!hiddenNodeUuids?.has(node.uuid)) {
+    if (!isNodeEffectivelyHidden(node, hiddenNodeUuids, root)) {
       allHidden = false;
     }
   });
@@ -44,14 +44,39 @@ export function isNodeEffectivelyHidden(object, hiddenNodeUuids, stopAt = null) 
   return false;
 }
 
+export function isNodeHiddenByAncestor(object, hiddenNodeUuids, stopAt = null) {
+  if (!object?.parent || !hiddenNodeUuids?.size) return false;
+
+  let current = object.parent;
+  while (current && current !== stopAt) {
+    if (hiddenNodeUuids.has(current.uuid)) return true;
+    current = current.parent;
+  }
+  return false;
+}
+
+export function collectEffectivelyHiddenNodeUuids(root, hiddenNodeUuids) {
+  const hidden = new Set();
+  if (!root) return hidden;
+
+  root.traverse?.((node) => {
+    if (node === root || !node.uuid) return;
+    if (isNodeEffectivelyHidden(node, hiddenNodeUuids, root)) {
+      hidden.add(node.uuid);
+    }
+  });
+  return hidden;
+}
+
 export function toggleHiddenNode(object, hiddenNodeUuids) {
   const next = new Set(hiddenNodeUuids ?? []);
-  if (!object?.uuid) return next;
+  const targetUuids = collectVisibilityTargets(object);
+  if (!targetUuids.length) return next;
 
   if (next.has(object.uuid)) {
-    next.delete(object.uuid);
+    targetUuids.forEach((uuid) => next.delete(uuid));
   } else {
-    next.add(object.uuid);
+    targetUuids.forEach((uuid) => next.add(uuid));
   }
   return next;
 }

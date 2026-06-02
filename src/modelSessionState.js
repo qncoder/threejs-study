@@ -9,7 +9,7 @@ import {
 
 export const SESSION_STATE_VERSION = 1;
 
-const STORAGE_PREFIX = 'f309-glb-viewer:session:';
+const STORAGE_PREFIX = 'ZF18000-glb-viewer:session:';
 const SESSION_NODE_KEY = 'viewerSessionNodeKey';
 const CREATED_KEY_PREFIX = 'created:';
 

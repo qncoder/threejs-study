@@ -11,6 +11,10 @@ export function createCodeStats(code) {
   };
 }
 
+export function createScriptSnippetInsertion(code, snippetCode) {
+  return `${String(code ?? '').trim() ? '\n' : ''}${snippetCode}`;
+}
+
 export function insertTextAtSelection(value, selectionStart, selectionEnd, insertedText) {
   const text = String(value ?? '');
   const start = clampIndex(selectionStart, text.length);

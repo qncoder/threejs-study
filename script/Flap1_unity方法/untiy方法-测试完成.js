@@ -63,7 +63,6 @@ const InitD = DObject.getWorldPosition(new THREE.Vector3())
 const InitE = EObject.getWorldPosition(new THREE.Vector3())
 const DCVector = InitD.clone().sub(InitC)
 const nextBC = Init.BC - STEP * MOVE_DIRECTION
-if(0.976<=nextBC || nextBC<=1.2)return
 const C = getPointC(nextBC)
 setWorldPosition(CObject, C)
 const D = getPointD(C)

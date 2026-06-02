@@ -1,13 +1,15 @@
 // 接着执行这个脚本 （mesh已经放入Object3d 当中）
 const STEP = 0.01
-const MOVE_DIRECTION = 1
+const MOVE_DIRECTION = 1 //控制正反方向 1 收缩 -1 伸展
 const AObject = node.getObjectByName('flap1_driving_shaft_pos')
 const BObject = node.getObjectByName('flap1_hydraulic_fixed_pos')
 const CObject = node.getObjectByName('flap1_hydraulic_slidingshaft_pos')
 const DObject = node.getObjectByName('flap1_output_shaft_pos')
 const EObject = node.getObjectByName('flap1_pos')
+const FObject = node.getObjectByName('flap1_hydraulic_fixed_end')
 function setWorldPosition(object, targetWorldPosition) {
   const localPosition = targetWorldPosition.clone()
+  if(!localPosition || isNaN(localPosition.x) || isNaN(localPosition.y) || isNaN(localPosition.z)) return
   object.parent.updateWorldMatrix(true, true)
   object.parent.worldToLocal(localPosition)
   object.position.copy(localPosition)
@@ -26,12 +28,14 @@ function getTriangle() {
   const C = CObject.getWorldPosition(new THREE.Vector3())
   const D = DObject.getWorldPosition(new THREE.Vector3())
   const E = EObject.getWorldPosition(new THREE.Vector3())
+
   return {
     AB: A.distanceTo(B),
     AC: A.distanceTo(C),
     BC: B.distanceTo(C),
     DC: D.distanceTo(C),
     DE: D.distanceTo(E),
+
   }
 }
 function getPointC(BC) {
@@ -57,22 +61,25 @@ function getPointD(C) {
     .add(E)
   return pointD
 }
+
+
 const InitC = CObject.getWorldPosition(new THREE.Vector3())
 const InitD = DObject.getWorldPosition(new THREE.Vector3())
 const InitE = EObject.getWorldPosition(new THREE.Vector3())
 const DCVector = InitD.clone().sub(InitC)
 const nextBC = Init.BC - STEP * MOVE_DIRECTION
+if(nextBC<0.976 || nextBC>1.446){
+  console.log('边界')
+  return
+}
 const C = getPointC(nextBC)
 setWorldPosition(CObject, C)
 const D = getPointD(C)
 setWorldPosition(DObject, D)
-
 node.updateWorldMatrix(true, true)
 node.updateMatrix()
-CObject.lookAt(BObject.getWorldPosition(new THREE.Vector3()))
-BObject.lookAt(CObject.getWorldPosition(new THREE.Vector3()))
-AObject.lookAt(CObject.getWorldPosition(new THREE.Vector3()))
-DObject.lookAt(CObject.getWorldPosition(new THREE.Vector3()))
-// EObject.lookAt(DObject.getWorldPosition(new THREE.Vector3()))
-
+customQuaternionLookAt(CObject,BObject.getWorldPosition(new THREE.Vector3()))
+customQuaternionLookAt(BObject,CObject.getWorldPosition(new THREE.Vector3()))
+customQuaternionLookAt(AObject,CObject.getWorldPosition(new THREE.Vector3()))
+customQuaternionLookAt(DObject,CObject.getWorldPosition(new THREE.Vector3()))
 customQuaternionLookAt(EObject,DObject.getWorldPosition(new THREE.Vector3()))

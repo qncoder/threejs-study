@@ -73,7 +73,6 @@ export function createNodeScriptDialogState({
   node,
   row,
   transform,
-  position = { x: 72, y: 72 },
 }) {
   const hasBoundScript = hasBoundNodeControlScript(node);
 
@@ -86,8 +85,6 @@ export function createNodeScriptDialogState({
     script: getBoundNodeControlScript(node) || createTransformScript(transform),
     message: hasBoundScript ? '当前节点已绑定脚本。' : '可以编辑并执行当前节点脚本。',
     messageType: 'hint',
-    x: position.x,
-    y: position.y,
   };
 }
 

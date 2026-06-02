@@ -45,8 +45,9 @@ button:disabled {
 
 .app-shell {
   display: grid;
-  grid-template-columns: var(--structure-panel-width, 320px) 10px minmax(0, 1fr) 260px;
-  min-height: 100vh;
+  grid-template-columns: var(--structure-panel-width, 240px) 6px minmax(0, 1fr) 280px;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .viewer-panel {
@@ -54,7 +55,7 @@ button:disabled {
   grid-column: 3;
   grid-row: 1;
   min-width: 0;
-  min-height: 100vh;
+  min-height: 0;
   background: #10110f;
 }
 
@@ -65,13 +66,21 @@ button:disabled {
   z-index: 12;
   display: inline-flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
-  max-width: min(520px, calc(100% - 28px));
+  max-width: min(860px, calc(100% - 28px));
   padding: 6px;
   border: 1px solid rgb(255 255 255 / 14%);
   border-radius: 8px;
   background: rgb(16 17 15 / 78%);
   box-shadow: 0 12px 28px rgb(0 0 0 / 24%);
+}
+
+.toolbar-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
 }
 
 .canvas-transform-toolbar button {
@@ -104,7 +113,8 @@ button:disabled {
 
 .canvas-host {
   width: 100%;
-  height: 100vh;
+  height: 100%;
+  min-height: 0;
 }
 
 .canvas-host canvas {
@@ -120,9 +130,10 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  height: 100vh;
+  height: 100%;
+  min-height: 0;
   overflow: auto;
-  padding: 24px;
+  padding: 18px;
   border-right: 1px solid #d6d1c6;
   background: #f4f1ea;
 }
@@ -159,6 +170,84 @@ button:disabled {
   grid-template-columns: 64px minmax(0, 1fr);
   gap: 8px;
   padding: 6px 0;
+}
+
+.selected-node-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.selected-node-title {
+  color: #292524;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.selected-node-actions,
+.file-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.info-details {
+  display: block;
+}
+
+.info-details summary {
+  cursor: pointer;
+  color: #292524;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.info-details .info-list,
+.info-details .empty-text {
+  margin-top: 12px;
+}
+
+.transform-readout {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid #d6d1c6;
+  border-radius: 8px;
+  background: #fffdf7;
+}
+
+.transform-readout-head,
+.transform-readout-row {
+  display: grid;
+  grid-template-columns: 44px repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  align-items: center;
+}
+
+.transform-readout-head {
+  color: #78716c;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.transform-readout-row strong {
+  color: #292524;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.transform-readout-row span {
+  min-width: 0;
+  padding: 5px 4px;
+  border-radius: 5px;
+  color: #1c1917;
+  background: #f4f1ea;
+  font-family: "Cascadia Code", "Consolas", "SFMono-Regular", monospace;
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: right;
 }
 
 .panel-header {
@@ -342,7 +431,7 @@ h2 {
 .node-list li {
   position: relative;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) 42px 34px;
+  grid-template-columns: 22px 20px minmax(0, 1fr) 42px 34px;
   gap: 5px;
   align-items: stretch;
   width: 100%;
@@ -388,6 +477,23 @@ h2 {
 
 .collapse-toggle.hidden {
   visibility: hidden;
+}
+
+.node-type-icon {
+  display: grid;
+  place-items: center;
+  min-height: 34px;
+  color: #78716c;
+}
+
+.node-type-icon svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .node-list li.active .node-select {
@@ -759,10 +865,9 @@ h2 {
 }
 
 .code-editor-shell {
-  display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
+  display: block;
   min-height: 280px;
-  max-height: min(48vh, 460px);
+  height: min(48vh, 460px);
   overflow: hidden;
   border: 1px solid #292524;
   border-radius: 8px;
@@ -770,43 +875,13 @@ h2 {
   box-shadow: inset 0 0 0 1px rgb(255 255 255 / 4%);
 }
 
-.code-line-numbers {
-  margin: 0;
-  padding: 12px 8px;
-  overflow: hidden;
-  color: #a8a29e;
-  background: #292524;
-  font-family: "Cascadia Code", "Consolas", "SFMono-Regular", monospace;
-  font-size: 13px;
-  line-height: 1.65;
-  text-align: right;
-  list-style: none;
-  pointer-events: none;
-}
-
 .code-editor {
   width: 100%;
-  min-height: 280px;
-  max-height: min(48vh, 460px);
-  padding: 12px 14px;
-  border: 0;
-  border-radius: 0;
-  outline: none;
-  color: #f5f5f4;
-  background: #1c1917;
-  font-family: "Cascadia Code", "Consolas", "SFMono-Regular", monospace;
-  font-size: 13px;
-  line-height: 1.65;
-  resize: vertical;
-  tab-size: 2;
+  height: 100%;
 }
 
-.code-editor:focus {
+.code-editor-shell:focus-within {
   box-shadow: inset 0 0 0 2px #0f766e;
-}
-
-.code-editor:disabled {
-  opacity: 0.55;
 }
 
 .code-help {
@@ -927,14 +1002,30 @@ h2 {
 }
 
 .script-modal {
-  width: min(760px, 100%);
+  position: fixed;
+  z-index: 24;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: min(480px, calc(100vw - 32px));
+  min-height: 360px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  overflow: hidden;
 }
 
 .floating-script-modal {
-  position: fixed;
-  z-index: 24;
-  width: min(760px, calc(100vw - 16px));
-  max-height: min(86vh, 760px);
+  border-color: rgb(214 209 198 / 78%);
+  background: rgb(244 241 234 / 94%);
+}
+
+.floating-script-modal.transparent {
+  background: rgb(244 241 234 / 72%);
+  backdrop-filter: blur(12px);
+}
+
+.floating-script-modal.maximized {
+  border-radius: 6px;
 }
 
 .draggable-modal-header {
@@ -944,6 +1035,127 @@ h2 {
 
 .draggable-modal-header button {
   cursor: pointer;
+}
+
+.script-window-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.script-window-actions button {
+  min-height: 30px;
+  padding: 5px 9px;
+}
+
+.script-modal .code-editor-shell {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  background: #1c1917;
+}
+
+.script-modal .modal-actions {
+  flex-shrink: 0;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.script-resize-handle {
+  position: absolute;
+  z-index: 2;
+}
+
+.script-resize-handle.handle-n,
+.script-resize-handle.handle-s {
+  left: 14px;
+  right: 14px;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.script-resize-handle.handle-n {
+  top: 0;
+}
+
+.script-resize-handle.handle-s {
+  bottom: 0;
+}
+
+.script-resize-handle.handle-e,
+.script-resize-handle.handle-w {
+  top: 14px;
+  bottom: 14px;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.script-resize-handle.handle-e {
+  right: 0;
+}
+
+.script-resize-handle.handle-w {
+  left: 0;
+}
+
+.script-resize-handle.handle-ne,
+.script-resize-handle.handle-se,
+.script-resize-handle.handle-sw,
+.script-resize-handle.handle-nw {
+  width: 16px;
+  height: 16px;
+}
+
+.script-resize-handle.handle-ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+
+.script-resize-handle.handle-se {
+  right: 0;
+  bottom: 0;
+  cursor: nwse-resize;
+}
+
+.script-resize-handle.handle-sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+
+.script-resize-handle.handle-nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+
+.script-dialog-badge {
+  position: fixed;
+  z-index: 24;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(280px, calc(100vw - 32px));
+  min-height: 40px;
+  padding: 8px 12px;
+  border-color: rgb(214 209 198 / 80%);
+  color: #292524;
+  background: rgb(244 241 234 / 78%);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 16px 36px rgb(16 17 15 / 24%);
+}
+
+.script-dialog-badge span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.script-dialog-badge strong {
+  flex-shrink: 0;
+  font-size: 12px;
 }
 
 .modal-header {
@@ -995,6 +1207,10 @@ h2 {
 @media (max-width: 980px) {
   .app-shell {
     grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(40vh, 54vh) auto;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
   }
 
   .structure-panel {
@@ -1002,12 +1218,12 @@ h2 {
     grid-row: 1;
   }
 
-  .side-panel {
+  .viewer-panel {
     grid-column: 1;
-    grid-row: 4;
+    grid-row: 2;
   }
 
-  .viewer-panel {
+  .side-panel {
     grid-column: 1;
     grid-row: 3;
   }
@@ -1029,12 +1245,22 @@ h2 {
   }
 
   .structure-panel {
+    max-height: 34vh;
+    overflow: auto;
     border-bottom: 1px solid #d6d1c6;
+  }
+
+  .node-section {
+    min-height: 0;
   }
 
   .side-panel {
     min-height: auto;
     border-left: 0;
+  }
+
+  .script-modal .modal-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

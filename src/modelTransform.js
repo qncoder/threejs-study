@@ -60,6 +60,14 @@ export function cloneTransform(transform) {
   };
 }
 
+export function createTransformDisplayRows(transform) {
+  return [
+    { key: 'position', label: '位置', values: formatDisplayVector(transform?.position) },
+    { key: 'rotationDeg', label: '角度', values: formatDisplayVector(transform?.rotationDeg) },
+    { key: 'scale', label: '缩放', values: formatDisplayVector(transform?.scale) },
+  ];
+}
+
 function validateTransform(transform) {
   const errors = [];
   validateVector('位置', transform?.position, errors);
@@ -87,6 +95,18 @@ function toNumberArray(value) {
 
 function vectorToArray(vector) {
   return [roundNumber(vector.x), roundNumber(vector.y), roundNumber(vector.z)];
+}
+
+function formatDisplayVector(value) {
+  return AXIS_LABELS.map((_axis, index) => formatDisplayNumber(value?.[index]));
+}
+
+function formatDisplayNumber(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '0';
+
+  const rounded = roundNumber(number, 3);
+  return Object.is(rounded, -0) ? '0' : String(rounded);
 }
 
 function radToDeg(value) {
