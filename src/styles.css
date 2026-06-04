@@ -627,6 +627,31 @@ h2 {
   font-size: 12px;
 }
 
+.node-script-badge {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  color: #fff;
+  background: #16a34a;
+  box-shadow: 0 0 0 2px rgb(22 163 74 / 14%);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.node-list .node-select .node-meta .node-script-badge {
+  color: #fff;
+  font-size: 11px;
+}
+
+.node-list li.active .node-script-badge {
+  background: #15803d;
+}
+
 .role-pill {
   display: inline-flex;
   max-width: 104px;
@@ -1049,6 +1074,185 @@ h2 {
   padding: 5px 9px;
 }
 
+.script-workspace {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+}
+
+.script-list-panel {
+  align-self: start;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  padding: 10px;
+  border: 1px solid #d6d1c6;
+  border-radius: 6px;
+  background: #fffdf7;
+}
+
+.script-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #6b6258;
+  font-size: 12px;
+}
+
+.script-list-header strong {
+  color: #292524;
+  font-size: 13px;
+}
+
+.script-list {
+  height: 100%;
+  width: 100%;
+  overflow: auto;
+}
+
+.script-list-item {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 8px 9px;
+  border: 1px solid #b7b3a9;
+  border-radius: 6px;
+  text-align: left;
+  background: #f4f1ea;
+  margin-top: 10px;
+}
+
+.script-list-item span,
+.script-list-item small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.script-list-item span {
+  color: #292524;
+  font-size: 13px;
+}
+
+.script-list-item small {
+  color: #6b6258;
+  font-size: 11px;
+}
+
+.script-list-item.active {
+  border-color: #0f766e;
+  color: #0f5f4e;
+  background: #ecfdf5;
+}
+
+.script-list-item.active span,
+.script-list-item.active small {
+  color: inherit;
+}
+
+.script-editor-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.script-entry-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.script-name-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.script-name-field span {
+  color: #6b6258;
+  font-size: 12px;
+}
+
+.script-name-field input {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid #b7b3a9;
+  border-radius: 6px;
+  color: #292524;
+  background: #fffdf7;
+}
+
+.script-entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.script-entry-actions button {
+  min-height: 34px;
+  padding: 6px 10px;
+}
+
+.script-source-bar {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  align-items: end;
+  padding: 8px;
+  border: 1px solid #d6d1c6;
+  border-radius: 6px;
+  background: #fffdf7;
+}
+
+.script-source-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.script-source-field span {
+  color: #6b6258;
+  font-size: 12px;
+}
+
+.script-source-field select {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid #b7b3a9;
+  border-radius: 6px;
+  color: #292524;
+  background: #f4f1ea;
+}
+
+.script-source-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 6px;
+}
+
+.script-source-actions button {
+  min-height: 34px;
+  padding: 6px 10px;
+}
+
+.script-upload-input {
+  display: none;
+}
+
 .script-modal .code-editor-shell {
   flex: 1;
   min-height: 0;
@@ -1277,5 +1481,29 @@ h2 {
   .transform-group,
   .info-list div {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 820px) {
+  .script-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .script-list-panel {
+    height: 220px;
+    max-height: 220px;
+  }
+
+  .script-entry-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .script-source-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .script-entry-actions,
+  .script-source-actions {
+    justify-content: flex-start;
   }
 }

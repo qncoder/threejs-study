@@ -117,12 +117,16 @@ function divideScale(value, parentValue) {
 }
 
 function isInitializedMeshObject(mesh) {
+  const targetName = meshObjectName(mesh)
+  if (hasNamedAncestor(mesh.parent, targetName)) {
+    return true
+  }
+
   const parent = mesh.parent
   return Boolean(parent?.children.some((sibling) =>
     sibling !== mesh
       && sibling.type === 'Object3D'
-      && sibling.userData?.[CREATED_OBJECT_KEY] === true
-      && sibling.name === meshObjectName(mesh)
+      && sibling.name === targetName
   ))
 }
 
@@ -153,6 +157,15 @@ function moveNodeAfterSibling(node, sibling, parent) {
   parent.children.splice(nodeIndex, 1)
   const adjustedSiblingIndex = parent.children.indexOf(sibling)
   parent.children.splice(adjustedSiblingIndex + 1, 0, node)
+}
+
+function hasNamedAncestor(object, name) {
+  let current = object
+  while (current) {
+    if (current.name === name) return true
+    current = current.parent
+  }
+  return false
 }
 
 export function moveNodeToObject3D(root, node, target) {

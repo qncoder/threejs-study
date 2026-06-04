@@ -20,6 +20,10 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  readOnly: {
+    type: Boolean,
+    default: false,
+  },
   ariaLabel: {
     type: String,
     default: '代码编辑器',
@@ -37,6 +41,7 @@ onMounted(() => {
     value: props.modelValue,
     language: 'javascript',
     theme: 'vs-dark',
+    readOnly: props.readOnly,
     ariaLabel: props.ariaLabel,
     automaticLayout: true,
     fontFamily: '"Cascadia Code", "Consolas", "SFMono-Regular", monospace',
@@ -83,6 +88,13 @@ watch(
   },
 );
 
+watch(
+  () => props.readOnly,
+  (value) => {
+    editor?.updateOptions({ readOnly: value });
+  },
+);
+
 onBeforeUnmount(() => {
   changeDisposable?.dispose();
   editor?.dispose();
@@ -91,7 +103,7 @@ onBeforeUnmount(() => {
 });
 
 function insertText(text) {
-  if (!editor) return false;
+  if (!editor || props.readOnly) return false;
 
   editor.executeEdits('script-toolbar', [
     {

@@ -76,11 +76,12 @@ src/
 
 脚本能力集中在节点脚本弹窗里：
 
-- 打开弹窗时，优先读取节点 `userData.controlScript`。
-- 没有绑定脚本时，按当前节点变换生成默认脚本。
-- `执行` 成功后会把编辑器里的内容保存到节点 `userData.controlScript`。
-- `保存绑定` 写入 `userData.controlScript`。
-- `清除绑定` 删除节点上的脚本绑定。
+- 打开弹窗时，优先读取节点 `userData.controlScripts` 列表；如果还是旧数据，再回退到 `userData.controlScript`。
+- 没有绑定脚本时，会先按当前节点变换生成一个默认脚本，方便直接改。
+- 每个脚本条目都有自己的名字和内容，可以在列表里切换、改名、继续新增。
+- `执行当前` 只执行当前选中的脚本，成功后会把整个脚本列表写回节点。
+- `保存全部` 会把当前编辑的脚本列表写入节点 `userData.controlScripts`，同时保留旧的 `controlScript` 兼容字段。
+- `清除绑定` 会删除节点上的全部脚本绑定。
 
 脚本里可用：
 
@@ -100,7 +101,7 @@ deg(value)
 
 - 节点父子关系，包括拖拽后放到 `Mesh` 或 `Object3D` 下的结果。
 - 节点位置、旋转、缩放。
-- 节点 `userData.controlScript` 脚本绑定。
+- 节点 `userData.controlScripts` 脚本列表，以及兼容用的 `userData.controlScript`。
 - 节点隐藏/显示状态。
 - 当前选中节点。
 - 当前会话中新建的 Object3D。

@@ -5,6 +5,8 @@ import {
   bindNodeControlScript,
   clearNodeControlScript,
   getBoundNodeControlScript,
+  getBoundNodeControlScripts,
+  setBoundNodeControlScripts,
 } from './nodeScriptControl.js';
 
 export const SESSION_STATE_VERSION = 1;
@@ -53,6 +55,7 @@ export function captureModelSessionState(root, {
       childIndex: object.parent ? object.parent.children.indexOf(object) : -1,
       transform: readNodeTransform(object),
       controlScript: getBoundNodeControlScript(object),
+      controlScripts: getBoundNodeControlScripts(object),
       isViewerCreated: isViewerCreatedObject3D(object),
     });
   });
@@ -120,7 +123,9 @@ export function restoreModelSessionState(root, state) {
     if (!object) continue;
 
     object.name = nodeState.name ?? object.name;
-    if (nodeState.controlScript) {
+    if (Array.isArray(nodeState.controlScripts) && nodeState.controlScripts.length > 0) {
+      setBoundNodeControlScripts(object, nodeState.controlScripts);
+    } else if (nodeState.controlScript) {
       bindNodeControlScript(object, nodeState.controlScript);
     } else {
       clearNodeControlScript(object);

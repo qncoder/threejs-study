@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   AmbientLight,
   Box3,
@@ -112,12 +112,24 @@ import {
 } from './nodeVisibility.js';
 import { clampPanelWidth } from './panelResize.js';
 import {
-  bindNodeControlScript,
   clearNodeControlScript,
+  createControlScriptEntry,
   createNodeScriptDialogState,
   createTransformScript,
-  runAndBindNodeControlScript,
+  getBoundNodeControlScripts,
+  runNodeControlScript,
+  setBoundNodeControlScripts,
 } from './nodeScriptControl.js';
+import {
+  applyLookAtMeshHierarchy,
+  isLookAtScriptName,
+  restoreLookAtMeshHierarchy,
+} from './lookAtScript.js';
+import {
+  consumeNodeSelectionScrollRequest,
+  createNodeSelectionScrollState,
+  requestNodeSelectionScroll,
+} from './nodeSelectionScroll.js';
 import {
   CONNECTION_DRAFT,
   MECHANISM_ROLES,
@@ -129,6 +141,11 @@ import {
   createCodeStats,
   createScriptSnippetInsertion,
 } from './codeEditor.js';
+import {
+  SCRIPT_LIBRARY_ITEMS,
+  createScriptNameFromFileName,
+  loadScriptLibraryItemSource,
+} from './scriptLibrary.js';
 import { removeScriptDebugHelpers } from './scriptDebugHelpers.js';
 import ScriptCodeEditor from './ScriptCodeEditor.vue';
 
@@ -143,7 +160,9 @@ const SCRIPT_SNIPPETS = [
 const SCRIPT_DIALOG_RESIZE_HANDLES = ['n', 'e', 's', 'w', 'ne', 'se', 'sw', 'nw'];
 const canvasHost = ref(null);
 const viewerPanelRef = ref(null);
+const nodeListRef = ref(null);
 const scriptEditorRef = ref(null);
+const scriptUploadInputRef = ref(null);
 const status = ref('正在加载默认模型 ZF18000.glb');
 const isLoading = ref(false);
 const modelReady = ref(false);
@@ -177,9 +196,11 @@ const scriptDialog = ref(createClosedScriptDialog());
 const scriptDialogLayout = ref(createDefaultScriptDialogLayout());
 const scriptDialogMaximizedLayout = ref(createDefaultScriptDialogLayout());
 const hasScriptDialogLayout = ref(false);
+const selectedScriptLibraryId = ref(SCRIPT_LIBRARY_ITEMS[0]?.id ?? '');
 const scriptDialogDrag = ref(createDialogDragState());
 const scriptDialogResize = ref(createDialogResizeState());
 const infoDialog = ref(createClosedInfoDialog());
+const nodeSelectionScrollState = createNodeSelectionScrollState();
 
 let scene;
 let camera;
@@ -197,7 +218,9 @@ let frameId = 0;
 let currentModel = null;
 let currentGltfMeta = { animations: [] };
 let currentFileMeta = { name: 'model.glb', size: 0 };
+let currentModelSource = null;
 let originalNodeTransforms = new Map();
+let originalModelEditState = null;
 let motionStartedAt = 0;
 let isApplyingMotion = false;
 let lastBox = null;
@@ -213,6 +236,10 @@ const filteredNodeRows = computed(() => filterNodeRowsByKeyword(visibleNodeRows.
 const nodePreviewRows = computed(() => filteredNodeRows.value.slice(0, NODE_PREVIEW_LIMIT));
 const hasNodeKeyword = computed(() => Boolean(nodeKeyword.value.trim()));
 const selectedNode = computed(() => nodeRows.value.find((node) => node.uuid === selectedNodeUuid.value) ?? null);
+const collapsibleNodeRows = computed(() => nodeRows.value.filter(canCollapseNode));
+const hasExpandedCollapsibleNodes = computed(() =>
+  collapsibleNodeRows.value.some((node) => !collapsedNodeUuids.value.has(node.uuid)),
+);
 const roleSummaryRows = computed(() =>
   MECHANISM_ROLES.map((role) => ({
     ...role,
@@ -224,6 +251,14 @@ const effectivelyHiddenNodeUuids = computed(() => collectEffectivelyHiddenNodeUu
 const nodeContextMenuItems = computed(() => getNodeContextMenuItems());
 const activeInfoNode = computed(() => nodeRows.value.find((node) => node.uuid === infoDialog.value.nodeUuid) ?? null);
 const activeInfoSections = computed(() => createNodeInfoSections(activeInfoNode.value));
+const activeScriptEntry = computed(
+  () => scriptDialog.value.scripts.find((item) => item.id === scriptDialog.value.activeScriptId) ?? null,
+);
+const activeScriptLocked = computed(() => Boolean(activeScriptEntry.value?.locked));
+const activeScriptIsLookAt = computed(() => isLookAtScriptName(activeScriptEntry.value?.name));
+const selectedScriptLibraryItem = computed(() =>
+  SCRIPT_LIBRARY_ITEMS.find((item) => item.id === selectedScriptLibraryId.value) ?? null,
+);
 const scriptDialogMessageClass = computed(() => ({
   error: scriptDialog.value.messageType === 'error',
   success: scriptDialog.value.messageType === 'success',
@@ -293,6 +328,18 @@ watch(nodeKeyword, (keyword) => {
   if (currentModel) applyModelAppearance();
 });
 
+watch([selectedNodeUuid, nodePreviewRows], () => {
+  if (!consumeNodeSelectionScrollRequest(nodeSelectionScrollState)) return;
+  scrollSelectedNodeIntoView();
+}, { flush: 'post' });
+
+watch(
+  () => [scriptDialog.value.activeScriptId, scriptDialog.value.script, scriptDialog.value.scriptName],
+  () => {
+    syncScriptDialogActiveEntry();
+  },
+);
+
 async function handleFileChange(event) {
   const file = event.target.files?.[0];
   if (!file) return;
@@ -336,7 +383,15 @@ async function loadDefaultModel() {
   }
 }
 
-function parseGlb(arrayBuffer, file) {
+function parseGlb(arrayBuffer, file, options = {}) {
+  const restoreSession = options.restoreSession ?? true;
+  const rememberSource = options.rememberSource ?? true;
+  const fileMeta = {
+    name: file?.name ?? 'model.glb',
+    size: file?.size ?? arrayBuffer.byteLength,
+  };
+  const sourceBuffer = rememberSource ? arrayBuffer.slice(0) : null;
+
   loader.parse(
     arrayBuffer,
     '',
@@ -345,18 +400,24 @@ function parseGlb(arrayBuffer, file) {
 
       currentModel = gltf.scene;
       currentGltfMeta = gltf;
-      currentFileMeta = file;
+      currentFileMeta = fileMeta;
+      if (rememberSource) {
+        currentModelSource = {
+          arrayBuffer: sourceBuffer,
+          file: fileMeta,
+        };
+      }
       scene.add(currentModel);
       prepareMaterialStates(currentModel);
       currentModel.updateWorldMatrix(true, true);
       const { sessionResult, meshObjectResult } = prepareLoadedModelStructure(
         currentModel,
-        restoreCurrentSessionState,
+        restoreSession ? restoreCurrentSessionState : undefined,
       );
 
       modelInfo.value = collectModelInfo(currentModel, currentGltfMeta, currentFileMeta);
       nodeRows.value = collectRoleNodeRows(currentModel);
-      originalNodeTransforms = captureOriginalNodeTransforms(currentModel);
+      captureCurrentModelInitialState();
       motionProgress.value = 0;
       isMotionPlaying.value = false;
       startPose.value = null;
@@ -380,8 +441,9 @@ function parseGlb(arrayBuffer, file) {
         ? `，已自动新增 ${meshObjectResult.created} 个 Object3D`
         : '';
       status.value = sessionResult.restored > 0
-        ? `加载成功：${file.name}，已恢复当前会话保存的模型编辑${meshObjectMessage}`
-        : `加载成功：${file.name}，共 ${nodeRows.value.length} 个节点${meshObjectMessage}`;
+        ? `加载成功：${fileMeta.name}，已恢复当前会话保存的模型编辑${meshObjectMessage}`
+        : options.successMessage
+          || `加载成功：${fileMeta.name}，共 ${nodeRows.value.length} 个节点${meshObjectMessage}`;
     },
     (error) => {
       isLoading.value = false;
@@ -573,13 +635,15 @@ function downloadBinary(payload, fileName, type) {
   URL.revokeObjectURL(url);
 }
 
-function selectNode(uuid) {
+function selectNode(uuid, { scrollIntoView = false } = {}) {
   const object = findObjectByUuid(uuid);
   if (isNodeEffectivelyHidden(object, hiddenNodeUuids.value, currentModel)) {
     status.value = '隐藏节点不可选中';
     return;
   }
 
+  const isSameSelection = selectedNodeUuid.value === uuid;
+  requestNodeSelectionScroll(nodeSelectionScrollState, scrollIntoView);
   selectedNodeUuid.value = uuid;
   resetTransformModeForSelection();
   syncTransformDraftFromSelection();
@@ -587,6 +651,10 @@ function selectNode(uuid) {
   closeContextMenu();
   if (scriptDialog.value.open) {
     updateScriptDialogForNode(uuid);
+  }
+
+  if (scrollIntoView && isSameSelection) {
+    scrollSelectedNodeIntoView();
   }
 }
 
@@ -609,7 +677,7 @@ function addPartObject3D(parent = currentModel, options = {}) {
   const object = createPartObject3D(currentModel, targetParent, options);
   selectedNodeUuid.value = object.uuid;
   resetTransformModeForSelection();
-  originalNodeTransforms = captureOriginalNodeTransforms(currentModel);
+  captureCurrentModelInitialState();
   refreshStructureAfterTransform();
   syncTransformDraftFromSelection();
   status.value = `已在 ${targetParent.name || '模型根节点'} 下新增 Object3D：${object.name}`;
@@ -633,7 +701,7 @@ function addPartObject3DToNode(uuid) {
   const object = createSiblingPartObject3D(currentModel, sibling);
   selectedNodeUuid.value = object.uuid;
   resetTransformModeForSelection();
-  originalNodeTransforms = captureOriginalNodeTransforms(currentModel);
+  captureCurrentModelInitialState();
   refreshStructureAfterTransform();
   syncTransformDraftFromSelection();
   status.value = `已在 ${sibling.name || '(未命名)'} 同级新增 Object3D：${object.name}`;
@@ -649,7 +717,9 @@ function initializeMeshObjects() {
 
   pushModelHistory();
   const result = initializeMeshObject3Ds(currentModel);
-  originalNodeTransforms = captureOriginalNodeTransforms(currentModel);
+  if (result.created > 0) {
+    captureCurrentModelInitialState();
+  }
   refreshStructureAfterTransform();
   syncTransformDraftFromSelection();
   status.value = `初始化 Object 完成：新增 ${result.created} 个，跳过 ${result.skipped} 个`;
@@ -708,6 +778,27 @@ function undoModelEdit() {
   saveCurrentSessionState();
 }
 
+function captureCurrentModelInitialState() {
+  if (!currentModel) {
+    originalNodeTransforms = new Map();
+    originalModelEditState = null;
+    return;
+  }
+
+  originalNodeTransforms = captureOriginalNodeTransforms(currentModel);
+  originalModelEditState = captureModelEditState(currentModel);
+}
+
+function restoreCurrentModelInitialState() {
+  if (!currentModel) return { restored: 0 };
+
+  if (originalModelEditState) {
+    return restoreModelEditState(currentModel, originalModelEditState);
+  }
+
+  return { restored: resetAllNodeTransforms(currentModel, originalNodeTransforms) };
+}
+
 function resetSelectedNodeTransform() {
   const object = findObjectByUuid(selectedNodeUuid.value);
   if (!currentModel || !object) {
@@ -735,11 +826,29 @@ function resetModelTransform() {
   }
 
   pushModelHistory();
-  const count = resetAllNodeTransforms(currentModel, originalNodeTransforms);
+  const result = restoreCurrentModelInitialState();
   refreshStructureAfterTransform();
   syncTransformDraftFromSelection();
-  status.value = `已重置模型：${count} 个节点`;
+  status.value = `已重置模型：${result.restored} 个节点`;
   saveCurrentSessionState();
+}
+
+function reloadCurrentModelSource() {
+  if (!currentModelSource?.arrayBuffer) {
+    status.value = '没有可重读的模型数据';
+    return;
+  }
+
+  stopMotionPlayback();
+  const fileName = currentModelSource.file?.name || currentSessionModelName();
+  clearModelSessionState(getBrowserSessionStorage(), currentSessionModelName());
+  isLoading.value = true;
+  status.value = `正在重读模型：${fileName}`;
+  parseGlb(currentModelSource.arrayBuffer.slice(0), currentModelSource.file, {
+    restoreSession: false,
+    rememberSource: false,
+    successMessage: `已重读模型：${fileName}，已恢复原始位置`,
+  });
 }
 
 function canDragNode(node) {
@@ -792,6 +901,22 @@ function toggleNodeCollapse(node) {
   status.value = nextCollapsed.has(node.uuid)
     ? `已折叠 Object3D：${node.displayName}`
     : `已展开 Object3D：${node.displayName}`;
+}
+
+function toggleAllNodeCollapse() {
+  const collapsibleNodes = nodeRows.value.filter(canCollapseNode);
+  if (!collapsibleNodes.length) {
+    status.value = '当前没有可收起的 Object3D';
+    return;
+  }
+
+  const shouldCollapse = collapsibleNodes.some((node) => !collapsedNodeUuids.value.has(node.uuid));
+  collapsedNodeUuids.value = shouldCollapse
+    ? new Set(collapsibleNodes.map((node) => node.uuid))
+    : new Set();
+  status.value = shouldCollapse
+    ? `已收起 ${collapsibleNodes.length} 个 Object3D`
+    : '已展开全部模型节点';
 }
 
 function isNodeHidden(node) {
@@ -1054,7 +1179,7 @@ function handleNodeDrop(event, targetUuid) {
 
   selectedNodeUuid.value = placement === NODE_DROP_PLACEMENTS.INSIDE ? target.uuid : source.uuid;
   resetTransformModeForSelection();
-  originalNodeTransforms = captureOriginalNodeTransforms(currentModel);
+  captureCurrentModelInitialState();
   refreshStructureAfterTransform();
   syncTransformDraftFromSelection();
   status.value = createNodeDropStatus(source, target, placement, result.moved);
@@ -1085,6 +1210,27 @@ function syncTransformDraftFromSelection() {
   transformDraft.value = cloneTransform(readNodeTransform(object));
 }
 
+function scrollSelectedNodeIntoView() {
+  nextTick(() => {
+    const list = nodeListRef.value;
+    if (!list) return;
+
+    const activeItem = list.querySelector('li.active');
+    if (!activeItem) return;
+
+    activeItem.scrollIntoView({ block: 'center' });
+  });
+}
+
+function createScriptDialogStateForObject(object, row) {
+  return createNodeScriptDialogState({
+    nodeUuid: object.uuid,
+    node: object,
+    row,
+    transform: cloneTransform(readNodeTransform(object)),
+  });
+}
+
 function openScriptDialog(uuid) {
   if (!updateScriptDialogForNode(uuid)) return;
 
@@ -1105,13 +1251,7 @@ function updateScriptDialogForNode(uuid) {
   if (!object || !row) return false;
 
   const currentState = scriptDialog.value;
-  const currentTransform = cloneTransform(readNodeTransform(object));
-  scriptDialog.value = createNodeScriptDialogState({
-    nodeUuid: uuid,
-    node: object,
-    row,
-    transform: currentTransform,
-  });
+  scriptDialog.value = createScriptDialogStateForObject(object, row);
   scriptDialog.value = {
     ...scriptDialog.value,
     minimized: currentState.minimized,
@@ -1119,6 +1259,231 @@ function updateScriptDialogForNode(uuid) {
     maximized: false,
   };
   return true;
+}
+
+function getScriptDialogActiveEntryIndex() {
+  return scriptDialog.value.scripts.findIndex((item) => item.id === scriptDialog.value.activeScriptId);
+}
+
+function getScriptDialogActiveEntry() {
+  const index = getScriptDialogActiveEntryIndex();
+  return index >= 0 ? scriptDialog.value.scripts[index] : null;
+}
+
+function syncScriptDialogActiveEntry() {
+  const entry = getScriptDialogActiveEntry();
+  if (!entry) return;
+
+  entry.script = scriptDialog.value.script;
+  entry.name = scriptDialog.value.scriptName;
+}
+
+function setScriptDialogActiveEntryLocked(locked) {
+  const entry = getScriptDialogActiveEntry();
+  if (!entry) return null;
+
+  entry.locked = locked;
+  scriptDialog.value = {
+    ...scriptDialog.value,
+    scripts: [...scriptDialog.value.scripts],
+  };
+  return entry;
+}
+
+function selectScriptDialogScript(scriptId) {
+  const entry = scriptDialog.value.scripts.find((item) => item.id === scriptId);
+  if (!entry) return;
+
+  syncScriptDialogActiveEntry();
+  scriptDialog.value = {
+    ...scriptDialog.value,
+    activeScriptId: entry.id,
+    script: entry.script,
+    scriptName: entry.name,
+  };
+}
+
+function createScriptDialogEntry() {
+  if (activeScriptLocked.value) {
+    updateScriptDialogMessage('请先解锁脚本，再新建脚本。', 'error');
+    return;
+  }
+
+  const object = findObjectByUuid(scriptDialog.value.nodeUuid);
+  if (!object) {
+    updateScriptDialogMessage('请先选择节点。', 'error');
+    return;
+  }
+
+  syncScriptDialogActiveEntry();
+
+  const entry = createControlScriptEntry({
+    name: `脚本 ${scriptDialog.value.scripts.length + 1}`,
+    script: createTransformScript(readNodeTransform(object)),
+  });
+  const scripts = [...scriptDialog.value.scripts, entry];
+  scriptDialog.value = {
+    ...scriptDialog.value,
+    scripts,
+    activeScriptId: entry.id,
+    script: entry.script,
+    scriptName: entry.name,
+  };
+  updateScriptDialogMessage(`已新建脚本：${entry.name}`, 'success');
+  status.value = scriptDialog.value.message;
+}
+
+function deleteScriptDialogEntry() {
+  if (activeScriptLocked.value) {
+    updateScriptDialogMessage('请先解锁脚本，再删除脚本。', 'error');
+    return;
+  }
+
+  const object = findObjectByUuid(scriptDialog.value.nodeUuid);
+  if (!object) {
+    updateScriptDialogMessage('请先选择节点。', 'error');
+    return;
+  }
+
+  if (scriptDialog.value.scripts.length <= 1) {
+    updateScriptDialogMessage('至少保留一个脚本，想清空请点“清除绑定”。', 'error');
+    return;
+  }
+
+  syncScriptDialogActiveEntry();
+
+  const index = getScriptDialogActiveEntryIndex();
+  if (index < 0) {
+    updateScriptDialogMessage('请先选择脚本。', 'error');
+    return;
+  }
+
+  const removedEntry = scriptDialog.value.scripts[index];
+  const scripts = scriptDialog.value.scripts.filter((_, scriptIndex) => scriptIndex !== index);
+  const nextEntry = scripts[Math.min(index, scripts.length - 1)];
+  scriptDialog.value = {
+    ...scriptDialog.value,
+    scripts,
+    activeScriptId: nextEntry.id,
+    script: nextEntry.script,
+    scriptName: nextEntry.name,
+  };
+  updateScriptDialogMessage(`已删除脚本：${removedEntry.name || '未命名'}`, 'success');
+  status.value = scriptDialog.value.message;
+}
+
+async function importSelectedScriptLibraryItem() {
+  const item = selectedScriptLibraryItem.value;
+  if (!item) {
+    updateScriptDialogMessage('请先选择一个内置脚本。', 'error');
+    return;
+  }
+
+  try {
+    const source = await loadScriptLibraryItemSource(item);
+    addScriptDialogEntryFromSource({
+      name: item.name,
+      script: source,
+      successLabel: `内置脚本：${item.name}`,
+    });
+  } catch (error) {
+    updateScriptDialogMessage(`读取内置脚本失败：${error?.message ?? String(error)}`, 'error');
+  }
+}
+
+function openScriptUploadPicker() {
+  if (activeScriptLocked.value) {
+    updateScriptDialogMessage('请先解锁脚本，再上传 JS。', 'error');
+    return;
+  }
+
+  scriptUploadInputRef.value?.click();
+}
+
+async function handleScriptUpload(event) {
+  const file = event.target.files?.[0];
+  event.target.value = '';
+  if (!file) return;
+
+  if (!file.name.toLowerCase().endsWith('.js')) {
+    updateScriptDialogMessage('请选择 .js 文件。', 'error');
+    return;
+  }
+
+  try {
+    const source = await file.text();
+    addScriptDialogEntryFromSource({
+      name: createScriptNameFromFileName(file.name),
+      script: source,
+      successLabel: `上传脚本：${file.name}`,
+    });
+  } catch (error) {
+    updateScriptDialogMessage(`读取上传脚本失败：${error?.message ?? String(error)}`, 'error');
+  }
+}
+
+function addScriptDialogEntryFromSource({ name, script, successLabel }) {
+  if (activeScriptLocked.value) {
+    updateScriptDialogMessage('请先解锁脚本，再导入脚本。', 'error');
+    return false;
+  }
+
+  const object = findObjectByUuid(scriptDialog.value.nodeUuid);
+  if (!object) {
+    updateScriptDialogMessage('请先选择节点。', 'error');
+    return false;
+  }
+
+  const source = String(script ?? '').trimEnd();
+  if (!source.trim()) {
+    updateScriptDialogMessage('脚本内容为空，不能导入。', 'error');
+    return false;
+  }
+
+  syncScriptDialogActiveEntry();
+
+  const entry = createControlScriptEntry({
+    name,
+    script: source,
+  });
+  const scripts = [...scriptDialog.value.scripts, entry];
+  scriptDialog.value = {
+    ...scriptDialog.value,
+    scripts,
+    activeScriptId: entry.id,
+    script: entry.script,
+    scriptName: entry.name,
+  };
+  updateScriptDialogMessage(`已导入${successLabel}，检查后可以保存或执行。`, 'success');
+  status.value = scriptDialog.value.message;
+  return true;
+}
+
+function unlockActiveScript() {
+  const object = findObjectByUuid(scriptDialog.value.nodeUuid);
+  const row = nodeRows.value.find((node) => node.uuid === scriptDialog.value.nodeUuid);
+  if (!object) {
+    updateScriptDialogMessage('请先选择节点。', 'error');
+    return;
+  }
+
+  const wasLookAt = activeScriptIsLookAt.value;
+  const result = wasLookAt && currentModel
+    ? restoreLookAtMeshHierarchy(currentModel, object)
+    : { moved: 0 };
+
+  setScriptDialogActiveEntryLocked(false);
+  setBoundNodeControlScripts(object, scriptDialog.value.scripts);
+  refreshStructureAfterTransform();
+  syncTransformDraftFromSelection();
+  updateScriptDialogMessage(
+    wasLookAt
+      ? `已解锁 lookAt，并恢复 ${result.moved} 个 mesh 的同级关系。`
+      : `已解锁脚本：${object.name || row?.displayName || '(未命名)'}`,
+    'success',
+  );
+  status.value = scriptDialog.value.message;
+  saveCurrentSessionState();
 }
 
 function closeScriptDialog() {
@@ -1331,37 +1696,62 @@ function insertScriptText(text) {
 function executeDialogScript() {
   stopMotionPlayback();
   const object = findObjectByUuid(scriptDialog.value.nodeUuid);
+  const row = nodeRows.value.find((node) => node.uuid === scriptDialog.value.nodeUuid);
   if (!object) {
     updateScriptDialogMessage('请先选择节点。', 'error');
     return false;
   }
 
-  const result = runAndBindNodeControlScript(object, scriptDialog.value.script, { scene });
+  syncScriptDialogActiveEntry();
+
+  pushModelHistory();
+  const result = runNodeControlScript(object, scriptDialog.value.script, { scene });
   if (!result.ok) {
+    undoStack.value = undoStack.value.slice(0, -1);
     updateScriptDialogMessage(`脚本执行失败：${result.error}`, 'error');
     return false;
   }
 
+  const isLookAt = activeScriptIsLookAt.value;
+  const lookAtResult = isLookAt && currentModel
+    ? applyLookAtMeshHierarchy(currentModel, object)
+    : { moved: 0 };
+  if (isLookAt) {
+    setScriptDialogActiveEntryLocked(true);
+  }
+  setBoundNodeControlScripts(object, scriptDialog.value.scripts);
   refreshStructureAfterTransform();
   syncTransformDraftFromSelection();
-  updateScriptDialogMessage(`脚本已应用并保存到节点：${object.name || '(未命名)'}`, 'success');
+  updateScriptDialogMessage(
+    isLookAt
+      ? `lookAt 已执行并锁定，已把 ${lookAtResult.moved} 个 mesh 挂到对应 _pos 下。`
+      : `脚本已执行并保存到节点：${object.name || row?.displayName || '(未命名)'}`,
+    'success',
+  );
   status.value = scriptDialog.value.message;
   saveCurrentSessionState();
   return true;
 }
 
 function saveDialogScript() {
+  if (activeScriptLocked.value) {
+    updateScriptDialogMessage('请先解锁脚本，再保存内容。', 'error');
+    return;
+  }
+
   const object = findObjectByUuid(scriptDialog.value.nodeUuid);
+  const row = nodeRows.value.find((node) => node.uuid === scriptDialog.value.nodeUuid);
   if (!object) {
     updateScriptDialogMessage('请先选择节点。', 'error');
     return;
   }
+  syncScriptDialogActiveEntry();
   if (!scriptDialog.value.script.trim()) {
     updateScriptDialogMessage('请先输入要保存的脚本。', 'error');
     return;
   }
 
-  const result = bindNodeControlScript(object, scriptDialog.value.script);
+  const result = setBoundNodeControlScripts(object, scriptDialog.value.scripts);
   if (!result.ok) {
     updateScriptDialogMessage(`脚本保存失败：${result.error}`, 'error');
     return;
@@ -1369,13 +1759,22 @@ function saveDialogScript() {
 
   refreshStructureAfterTransform();
   syncTransformDraftFromSelection();
-  updateScriptDialogMessage(`脚本已保存到节点：${object.name || '(未命名)'}`, 'success');
+  updateScriptDialogMessage(
+    `已保存 ${scriptDialog.value.scripts.length} 个脚本到节点：${object.name || row?.displayName || '(未命名)'}`,
+    'success',
+  );
   status.value = scriptDialog.value.message;
   saveCurrentSessionState();
 }
 
 function clearDialogScript() {
+  if (activeScriptLocked.value) {
+    updateScriptDialogMessage('请先解锁脚本，再清除绑定。', 'error');
+    return;
+  }
+
   const object = findObjectByUuid(scriptDialog.value.nodeUuid);
+  const row = nodeRows.value.find((node) => node.uuid === scriptDialog.value.nodeUuid);
   if (!object) {
     updateScriptDialogMessage('请先选择节点。', 'error');
     return;
@@ -1387,10 +1786,24 @@ function clearDialogScript() {
     return;
   }
 
-  scriptDialog.value.script = createTransformScript(readNodeTransform(object));
+  const nextState = row
+    ? createScriptDialogStateForObject(object, row)
+    : createNodeScriptDialogState({
+      nodeUuid: object.uuid,
+      node: object,
+      row: { displayName: object.name || '(未命名)', type: object.type || 'Object3D', path: object.name || '(未命名)' },
+      transform: cloneTransform(readNodeTransform(object)),
+    });
+  scriptDialog.value = {
+    ...scriptDialog.value,
+    ...nextState,
+    minimized: scriptDialog.value.minimized,
+    transparent: scriptDialog.value.transparent,
+    maximized: scriptDialog.value.maximized,
+  };
   refreshStructureAfterTransform();
   syncTransformDraftFromSelection();
-  updateScriptDialogMessage(`已清除节点脚本：${object.name || '(未命名)'}`, 'success');
+  updateScriptDialogMessage(`已清除节点全部脚本：${object.name || row?.displayName || '(未命名)'}`, 'success');
   status.value = scriptDialog.value.message;
   saveCurrentSessionState();
 }
@@ -1409,7 +1822,7 @@ function resetScriptCanvasHelpers() {
 
   if (currentModel) {
     pushModelHistory();
-    resetCount = resetAllNodeTransforms(currentModel, originalNodeTransforms);
+    resetCount = restoreCurrentModelInitialState().restored;
     motionProgress.value = 0;
     isMotionPlaying.value = false;
     motionMessage.value = '已重置模型动作。';
@@ -1775,7 +2188,7 @@ function handleCanvasPointerUp(event) {
   const uuid = findSelectableNodeUuid(hitObject, nodeRows.value, hiddenNodeUuids.value);
   if (!uuid) return;
 
-  selectNode(uuid);
+  selectNode(uuid, { scrollIntoView: true });
   const object = findObjectByUuid(uuid);
   status.value = `已从模型选中：${object?.name || hitObject.name || '(未命名)'}`;
 }
@@ -1894,7 +2307,19 @@ function findObjectByUuid(uuid) {
 }
 
 function collectRoleNodeRows(model) {
-  return enrichNodeRowsWithRoles(collectNodeRows(model));
+  const scriptCounts = collectNodeScriptCounts(model);
+  return enrichNodeRowsWithRoles(collectNodeRows(model)).map((row) => ({
+    ...row,
+    scriptCount: scriptCounts.get(row.uuid) ?? 0,
+  }));
+}
+
+function collectNodeScriptCounts(model) {
+  const counts = new Map();
+  model?.traverse?.((object) => {
+    counts.set(object.uuid, getBoundNodeControlScripts(object).length);
+  });
+  return counts;
 }
 
 function pruneCollapsedNodeUuids() {
@@ -1938,6 +2363,7 @@ function disposeCurrentModel() {
   currentGltfMeta = { animations: [] };
   currentFileMeta = { name: 'model.glb', size: 0 };
   originalNodeTransforms = new Map();
+  originalModelEditState = null;
   motionProgress.value = 0;
   isMotionPlaying.value = false;
   startPose.value = null;
@@ -1971,7 +2397,10 @@ function createClosedScriptDialog() {
     nodeTitle: '',
     nodeType: '',
     nodePath: '',
+    scripts: [],
+    activeScriptId: '',
     script: '',
+    scriptName: '',
     message: '',
     messageType: 'hint',
     minimized: false,
@@ -2010,6 +2439,13 @@ function createEmptyTransform() {
           <h2>节点列表</h2>
           <div class="node-title-actions">
             <button type="button" :disabled="!modelReady" @click="refreshStructure">刷新</button>
+            <button
+              type="button"
+              :disabled="!modelReady || collapsibleNodeRows.length === 0"
+              @click="toggleAllNodeCollapse"
+            >
+              {{ hasExpandedCollapsibleNodes ? '全部收起' : '全部展开' }}
+            </button>
             <button type="button" :disabled="!modelReady" @click="toggleAllNodesVisibility">
               {{ allNodesHidden ? '全部展示' : '全部隐藏' }}
             </button>
@@ -2036,7 +2472,7 @@ function createEmptyTransform() {
           共 {{ nodeRows.length }} 个节点，当前匹配 {{ filteredNodeRows.length }} 个，列表展示 {{ nodePreviewRows.length }} 条。
         </p>
 
-        <ul v-if="nodePreviewRows.length" class="node-list">
+        <ul ref="nodeListRef" v-if="nodePreviewRows.length" class="node-list">
           <li
             v-for="node in nodePreviewRows"
             :key="node.uuid"
@@ -2102,6 +2538,14 @@ function createEmptyTransform() {
                 {{ node.displayName }}
               </span>
               <span class="node-meta">
+                <span
+                  v-if="node.scriptCount > 0"
+                  class="node-script-badge"
+                  :title="`${node.scriptCount} 个绑定脚本`"
+                  :aria-label="`${node.scriptCount} 个绑定脚本`"
+                >
+                  {{ node.scriptCount }}
+                </span>
                 <span>{{ node.type }}</span>
               </span>
             </button>
@@ -2121,6 +2565,14 @@ function createEmptyTransform() {
                 @keydown.enter="$event.target.blur()"
               />
               <span class="node-meta">
+                <span
+                  v-if="node.scriptCount > 0"
+                  class="node-script-badge"
+                  :title="`${node.scriptCount} 个绑定脚本`"
+                  :aria-label="`${node.scriptCount} 个绑定脚本`"
+                >
+                  {{ node.scriptCount }}
+                </span>
                 <span>{{ node.type }}</span>
               </span>
             </div>
@@ -2229,6 +2681,13 @@ function createEmptyTransform() {
           >
             重置
           </button>
+          <button
+            type="button"
+            :disabled="!modelReady"
+            @click="reloadCurrentModelSource"
+          >
+            重读模型
+          </button>
         </div>
         <span class="toolbar-divider" aria-hidden="true"></span>
         <div class="toolbar-group" aria-label="节点操作">
@@ -2336,32 +2795,109 @@ function createEmptyTransform() {
         </div>
       </header>
       <p class="modal-path">{{ scriptDialog.nodePath }}</p>
-      <div class="code-toolbar" aria-label="脚本快捷插入">
-        <span>插入</span>
-        <button
-          v-for="snippet in SCRIPT_SNIPPETS"
-          :key="snippet.label"
-          type="button"
-          @pointerdown.stop
-          @click="insertScriptSnippet(snippet)"
-        >
-          {{ snippet.label }}
-        </button>
-        <em>{{ scriptEditorStats.lines }} 行 / {{ scriptEditorStats.chars }} 字符</em>
+      <div class="script-workspace">
+        <aside class="script-list-panel" aria-label="脚本列表">
+          <div class="script-list-header">
+            <strong>脚本列表</strong>
+            <span>{{ scriptDialog.scripts.length }} 个</span>
+          </div>
+          <div class="script-list">
+            <button
+              v-for="(scriptItem, index) in scriptDialog.scripts"
+              :key="scriptItem.id"
+              type="button"
+              class="script-list-item"
+              :class="{ active: scriptItem.id === scriptDialog.activeScriptId, locked: scriptItem.locked }"
+              @click="selectScriptDialogScript(scriptItem.id)"
+            >
+              <span>{{ scriptItem.name || `脚本 ${index + 1}` }}</span>
+              <small>{{ createCodeStats(scriptItem.script).lines }} 行{{ scriptItem.locked ? ' · 已锁定' : '' }}</small>
+            </button>
+          </div>
+        </aside>
+        <section class="script-editor-panel">
+          <div class="script-entry-bar">
+            <label class="script-name-field">
+              <span>脚本名称</span>
+              <input
+                v-model="scriptDialog.scriptName"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                :disabled="activeScriptLocked"
+              />
+            </label>
+            <div class="script-entry-actions">
+              <button type="button" :disabled="activeScriptLocked" @click="createScriptDialogEntry">新建脚本</button>
+              <button type="button" :disabled="activeScriptLocked || scriptDialog.scripts.length <= 1" @click="deleteScriptDialogEntry">删除当前</button>
+              <button v-if="activeScriptLocked" type="button" @click="unlockActiveScript">解锁</button>
+            </div>
+          </div>
+          <div class="script-source-bar">
+            <label class="script-source-field">
+              <span>脚本库</span>
+              <select
+                v-model="selectedScriptLibraryId"
+                :disabled="activeScriptLocked || SCRIPT_LIBRARY_ITEMS.length <= 0"
+              >
+                <option v-if="SCRIPT_LIBRARY_ITEMS.length <= 0" value="">没有内置脚本</option>
+                <option
+                  v-for="item in SCRIPT_LIBRARY_ITEMS"
+                  :key="item.id"
+                  :value="item.id"
+                >
+                  {{ item.name }}
+                </option>
+              </select>
+            </label>
+            <div class="script-source-actions">
+              <button
+                type="button"
+                :disabled="activeScriptLocked || !selectedScriptLibraryItem"
+                @click="importSelectedScriptLibraryItem"
+              >
+                导入选中
+              </button>
+              <button type="button" :disabled="activeScriptLocked" @click="openScriptUploadPicker">上传 JS</button>
+              <input
+                ref="scriptUploadInputRef"
+                class="script-upload-input"
+                type="file"
+                accept=".js,text/javascript,application/javascript"
+                @change="handleScriptUpload"
+              />
+            </div>
+          </div>
+          <div class="code-toolbar" aria-label="脚本快捷插入">
+            <span>插入</span>
+            <button
+              v-for="snippet in SCRIPT_SNIPPETS"
+              :key="snippet.label"
+              type="button"
+              @pointerdown.stop
+              :disabled="activeScriptLocked"
+              @click="insertScriptSnippet(snippet)"
+            >
+              {{ snippet.label }}
+            </button>
+            <em>{{ scriptEditorStats.lines }} 行 / {{ scriptEditorStats.chars }} 字符</em>
+          </div>
+          <div class="code-editor-shell">
+            <ScriptCodeEditor
+              ref="scriptEditorRef"
+              v-model="scriptDialog.script"
+              :readOnly="activeScriptLocked"
+              aria-label="节点 JS 脚本"
+              @run="executeDialogScript"
+            />
+          </div>
+          <p class="code-help">可用：node、scene、THREE、setPosition(x,y,z)、setRotationDeg(x,y,z)、setScale(x,y,z)、deg(角度)。按 Ctrl/Command + Enter 执行。</p>
+        </section>
       </div>
-      <div class="code-editor-shell">
-        <ScriptCodeEditor
-          ref="scriptEditorRef"
-          v-model="scriptDialog.script"
-          aria-label="节点 JS 脚本"
-          @run="executeDialogScript"
-        />
-      </div>
-      <p class="code-help">可用：node、scene、THREE、setPosition(x,y,z)、setRotationDeg(x,y,z)、setScale(x,y,z)、deg(角度)。按 Ctrl/Command + Enter 执行。</p>
       <div class="modal-actions">
-        <button type="button" @click="executeDialogScript">执行</button>
-        <button type="button" @click="saveDialogScript">保存绑定</button>
-        <button type="button" @click="clearDialogScript">清除绑定</button>
+        <button type="button" @click="executeDialogScript">执行当前</button>
+        <button type="button" :disabled="activeScriptLocked" @click="saveDialogScript">保存全部</button>
+        <button type="button" :disabled="activeScriptLocked" @click="clearDialogScript">清除绑定</button>
         <button type="button" @click="hideScriptTriangleHelpers">隐藏三角形</button>
         <button type="button" @click="resetScriptCanvasHelpers">重置画布</button>
       </div>
