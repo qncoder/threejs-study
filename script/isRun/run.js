@@ -47,9 +47,9 @@ export class HydraulicMechanism {
     // 角度参数
     // =========================
 
-    this.AngleAB_Horizontal = 0
+    this.AngleAB_Horizontal = this.PointA.sub(this.PointB).angleTo(new THREE.Vector3(0, 0, 1))
     this.InitAngleIE_Horizontal = 0
-    this.AngleEIG = 0
+    this.AngleEIG = this.getAngle(this.PointE, this.PointI, this.PointG)
 
     // =========================
     // 方向
@@ -62,13 +62,13 @@ export class HydraulicMechanism {
     // 模型节点
     // =========================
 
-    this.eularTempTRS = null
+    this.eularTempTRS = scene.getObjectByName('SupportPivot')
 
-    this.BackColumHydraulicJack = null
-    this.FrontColumHydraulicJack = null
+    this.backcolumn_hydraulic_slidingshaft2_pos = scene.getObjectByName('backcolumn_hydraulic_slidingshaft2_pos')
+    this.frontcolumn_hydraulic_slidingshaft2_pos = scene.getObjectByName('frontcolumn_hydraulic_slidingshaft2_pos')
 
-    this.crankMiddelSliding = null
-    this.crankAfterSliding = null
+    this.frontrod_shield = scene.getObjectByName('frontrod_shield')
+    this.backrod_shield = scene.getObjectByName('backrod_shield')
   }
 
   // ====================================================
@@ -214,26 +214,26 @@ export class HydraulicMechanism {
       return
     }
 
-    if (this.BackColumHydraulicJack?.slidingShaft) {
-      this.BackColumHydraulicJack.slidingShaft.position.copy(
+    if (this.backcolumn_hydraulic_slidingshaft2_pos) {
+      this.backcolumn_hydraulic_slidingshaft2_pos.position.copy(
         this.inverseTransformPoint(this.eularTempTRS, this.PointG)
       )
     }
 
-    if (this.FrontColumHydraulicJack?.slidingShaft) {
-      this.FrontColumHydraulicJack.slidingShaft.position.copy(
+    if (this.frontcolumn_hydraulic_slidingshaft2_pos) {
+      this.frontcolumn_hydraulic_slidingshaft2_pos.position.copy(
         this.inverseTransformPoint(this.eularTempTRS, this.PointE)
       )
     }
 
-    if (this.crankMiddelSliding) {
-      this.crankMiddelSliding.position.copy(
+    if (this.frontrod_shield) {
+      this.frontrod_shield.position.copy(
         this.inverseTransformPoint(this.eularTempTRS, this.PointD)
       )
     }
 
-    if (this.crankAfterSliding) {
-      this.crankAfterSliding.position.copy(
+    if (this.backrod_shield) {
+      this.backrod_shield.position.copy(
         this.inverseTransformPoint(this.eularTempTRS, this.PointC)
       )
     }
