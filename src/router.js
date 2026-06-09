@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import App from './App.vue';
+import Zf18000BatchPage from './pages/Zf18000BatchPage.vue';
 import Zf18000ColumnDebugPage from './pages/Zf18000ColumnDebugPage.vue';
 import Zf18000FourLinkDebugPage from './pages/Zf18000FourLinkDebugPage.vue';
 
@@ -12,6 +13,14 @@ const router = createRouter({
       component: App,
       meta: {
         title: 'ZF18000 GLB 演示',
+      },
+    },
+    {
+      path: '/zf18000-batch',
+      name: 'zf18000-batch',
+      component: Zf18000BatchPage,
+      meta: {
+        title: 'ZF18000 200 台批量加载',
       },
     },
     {

@@ -66,13 +66,7 @@ class HydraulicMechanism {
     )
     this.PointI.y > this.PointE.y ? this.InitAngleIE_Horizontal = -this.InitAngleIE_Horizontal : null
     this.AngleEIG = this.getAngle(this.PointE, this.PointI, this.PointG)
-    console.log(this.PointG)
-    console.log(this.PointE)
     this.PointG.y > this.PointE.y ? (this.AngleEIG = -this.AngleEIG) : null
-
-    console.log('AngleAB_Horizontal:', this.AngleAB_Horizontal)
-    console.log('InitAngleIE_Horizontal:', this.InitAngleIE_Horizontal)
-    console.log('AngleEIG:', this.AngleEIG)
 
     // =========================
     // 模型节点
@@ -254,12 +248,10 @@ class HydraulicMechanism {
     const angle = this.toNumber('顶梁角度', rodAngle)
 
     this.AngleDAB = angle + this.AngleAB_Horizontal
-    console.log(this.AngleDAB, 'AngleDAB')
 
     this.PointD = this.rockPoint(this.PointA, this.PointB, this.AngleDAB, this.LengthAD)
 
     this.AngleDBA = this.getAngle(this.PointD, this.PointB, this.PointA)
-    console.log(this.AngleDBA, 'AngleDBA')
 
     this.LengthBD = this.PointB.distanceTo(this.PointD)
 
@@ -279,7 +271,6 @@ class HydraulicMechanism {
 
     this.PointI = this.rockPoint(this.PointD, this.PointC, this.AngleCDI, this.LengthDI)
 
-    console.log('calculatePointI', this.PointI)
     return this.PointI
   }
 
@@ -322,19 +313,12 @@ class HydraulicMechanism {
       this.InitAngleIE_Horizontal +
       beamAngle
 
-    console.log('AngleDIE', AngleDIE)
     this.PointE = this.rockPoint(this.PointI, this.PointD, -AngleDIE, this.LengthIE)
 
     this.LengthEF = this.PointE.distanceTo(this.PointF)
 
     this.PointG = this.rockPoint(this.PointI, this.PointE, this.AngleEIG, this.LengthIG)
 
-    console.log(this.PointD, 'this.PointD')
-    console.log(this.PointE, 'this.PointE')
-    console.log(this.PointG, 'this.PointG')
-    console.log(this.LengthIE, 'LengthIE')
-
-    console.log(this.AngleEIG, 'AngleEIG')
     this.updatePoint()
 
     if (this.updateLooks) {
@@ -400,22 +384,73 @@ class HydraulicMechanism {
     TopBeamDIR.lookAt(targetPosition)
   }
 }
-const STORE_KEY = '__hydraulicMechanismInstance222133'
+// =========================
+// 动画参数
+// =========================
+
+const MIN_ROD_ANGLE = 20
+const MAX_ROD_ANGLE = 50
+const ANGLE_SPEED = 12
+const TOP_BEAM_ANGLE = 0
+
+const STORE_KEY = '__hydraulicMechanismAnimationStore'
 const FORCE_INIT = false
 
-if (FORCE_INIT || !window[STORE_KEY]) {
-  window[STORE_KEY] = new HydraulicMechanism(scene)
-  console.log('已初始化 HydraulicMechanism 实例')
-} else {
-  console.log('复用已有 HydraulicMechanism 实例')
+function stopOldAnimation() {
+  const oldStore = window[STORE_KEY]
+
+  if (oldStore && oldStore.frameId) {
+    cancelAnimationFrame(oldStore.frameId)
+    oldStore.frameId = 0
+  }
 }
 
-const group = window[STORE_KEY]
-if (!window.step) {
-  window.step = 40
-  console.log('重置 step 为 40')
-} else {
-  window.step += 1
-  console.log('当前 step:', window.step)
+window.stopHydraulicMechanismAnimation = stopOldAnimation
+
+function createAnimationStore() {
+  const oldStore = window[STORE_KEY] || {}
+
+  if (FORCE_INIT || !oldStore.group) {
+    oldStore.group = new HydraulicMechanism(scene)
+    console.log('已初始化 HydraulicMechanism 动画实例')
+  } else {
+    console.log('复用已有 HydraulicMechanism 动画实例')
+  }
+
+  oldStore.frameId = 0
+  oldStore.rodAngle = Number.isFinite(oldStore.rodAngle) ? oldStore.rodAngle : MIN_ROD_ANGLE
+  oldStore.direction = oldStore.direction === -1 ? -1 : 1
+  oldStore.lastTime = 0
+  window[STORE_KEY] = oldStore
+
+  return oldStore
 }
-group.rodTopBeamAngleToHydraulicLength(window.step, 0)
+
+stopOldAnimation()
+
+const store = createAnimationStore()
+
+function animate(now) {
+  if (!store.lastTime) {
+    store.lastTime = now
+  }
+
+  const deltaSecond = Math.min((now - store.lastTime) / 1000, 0.05)
+  store.lastTime = now
+
+  store.rodAngle += store.direction * ANGLE_SPEED * deltaSecond
+
+  if (store.rodAngle >= MAX_ROD_ANGLE) {
+    store.rodAngle = MAX_ROD_ANGLE
+    store.direction = -1
+  } else if (store.rodAngle <= MIN_ROD_ANGLE) {
+    store.rodAngle = MIN_ROD_ANGLE
+    store.direction = 1
+  }
+
+  store.group.rodTopBeamAngleToHydraulicLength(store.rodAngle, TOP_BEAM_ANGLE)
+  store.frameId = requestAnimationFrame(animate)
+}
+
+store.group.rodTopBeamAngleToHydraulicLength(store.rodAngle, TOP_BEAM_ANGLE)
+store.frameId = requestAnimationFrame(animate)
