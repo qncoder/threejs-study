@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="710" viewBox="0 0 800 710" font-family="Microsoft YaHei, PingFang SC, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#c2185b"/>
+    </marker>
+  </defs>
+
+  <rect width="800" height="710" fill="#fafafa"/>
+  <text x="400" y="26" text-anchor="middle" font-size="17" font-weight="bold" fill="#333">ZF18000 液压支架机构解析图（侧视，按 GLB 真实坐标绘制，单位：米）</text>
+
+  <!-- ===== 底座 Base（固定机架）===== -->
+  <rect x="185" y="550" width="560" height="78" rx="8" fill="#e0e0e0" stroke="#9e9e9e" stroke-width="2"/>
+  <polygon points="352,556 408,556 382,460" fill="#e0e0e0" stroke="#9e9e9e" stroke-width="2"/>
+  <text x="300" y="618" font-size="14" fill="#616161" font-weight="bold">底座 Base（固定，A/B/F 铰点都在它上面）</text>
+
+  <!-- ===== 顶梁 TopBeam（含 I/G/E 三点的刚体）===== -->
+  <line x1="305" y1="61" x2="762" y2="62" stroke="#757575" stroke-width="16" stroke-linecap="round"/>
+  <text x="560" y="48" text-anchor="middle" font-size="14" fill="#424242" font-weight="bold">顶梁 TopBeam（刚体：I、G、E 相对位置固定）</text>
+
+  <!-- ===== 掩护梁 Shield（C-D-I 刚体三角形）===== -->
+  <polygon points="90,332 148,264 334,60" fill="#1976d2" fill-opacity="0.13" stroke="#1976d2" stroke-width="5" stroke-linejoin="round"/>
+  <text x="135" y="150" font-size="14" fill="#1565c0" font-weight="bold">掩护梁 Shield</text>
+  <text x="135" y="168" font-size="12" fill="#1565c0">（刚体三角形 C-D-I）</text>
+
+  <!-- ===== 四连杆的机架边：A-B（底座上的固定边）===== -->
+  <line x1="378" y1="466" x2="231" y2="544" stroke="#9e9e9e" stroke-width="3" stroke-dasharray="7,5"/>
+
+  <!-- ===== 前连杆 A-D ===== -->
+  <line x1="378" y1="466" x2="148" y2="264" stroke="#ef6c00" stroke-width="9" stroke-linecap="round"/>
+  <text x="280" y="392" font-size="13" fill="#e65100" font-weight="bold" transform="rotate(41 280 392)">前连杆 AD=1.91m</text>
+
+  <!-- ===== 后连杆 B-C ===== -->
+  <line x1="231" y1="544" x2="90" y2="332" stroke="#2e7d32" stroke-width="9" stroke-linecap="round"/>
+  <text x="110" y="455" font-size="13" fill="#1b5e20" font-weight="bold" transform="rotate(56 110 455)">后连杆 BC=1.59m</text>
+
+  <!-- ===== 前立柱：缸体 F-K + 活塞 K-E ===== -->
+  <line x1="643" y1="569" x2="667" y2="332" stroke="#455a64" stroke-width="20" stroke-linecap="round"/>
+  <line x1="667" y1="332" x2="695" y2="62" stroke="#90a4ae" stroke-width="11" stroke-linecap="round"/>
+  <text x="690" y="450" font-size="13" fill="#37474f" font-weight="bold" transform="rotate(-84 690 450)">前立柱 FK=1.49m</text>
+
+  <!-- ===== 后立柱：缸体 Fb-J + 活塞 J-G ===== -->
+  <line x1="458" y1="576" x2="455" y2="346" stroke="#455a64" stroke-width="20" stroke-linecap="round"/>
+  <line x1="455" y1="346" x2="453" y2="64" stroke="#90a4ae" stroke-width="11" stroke-linecap="round"/>
+  <text x="478" y="470" font-size="13" fill="#37474f" font-weight="bold" transform="rotate(-89 478 470)">后立柱</text>
+
+  <!-- ===== EF 液压缸总长（逆解的输出）===== -->
+  <line x1="643" y1="569" x2="695" y2="62" stroke="#c2185b" stroke-width="2" stroke-dasharray="6,5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  <text x="703" y="245" font-size="13" fill="#c2185b" font-weight="bold">EF =</text>
+  <text x="703" y="262" font-size="13" fill="#c2185b" font-weight="bold">立柱总长</text>
+  <text x="703" y="279" font-size="12" fill="#c2185b">（逆解输出）</text>
+
+  <!-- ===== rodAngle 输入角标注（A 点处）===== -->
+  <line x1="378" y1="466" x2="475" y2="466" stroke="#c2185b" stroke-width="2" stroke-dasharray="4,4"/>
+  <path d="M 440 466 A 62 62 0 0 0 425 425" fill="none" stroke="#c2185b" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="452" y="432" font-size="13" fill="#c2185b" font-weight="bold">rodAngle</text>
+  <text x="452" y="448" font-size="12" fill="#c2185b">连杆角度（输入）</text>
+
+  <!-- ===== 计算求解点（蓝）===== -->
+  <g fill="#1565c0" stroke="#fff" stroke-width="2">
+    <circle cx="90"  cy="332" r="9"/>
+    <circle cx="148" cy="264" r="9"/>
+    <circle cx="334" cy="60"  r="9"/>
+    <circle cx="453" cy="64"  r="9"/>
+    <circle cx="695" cy="62"  r="9"/>
+  </g>
+  <!-- ===== 固定铰点（红）===== -->
+  <g fill="#c62828" stroke="#fff" stroke-width="2">
+    <circle cx="378" cy="466" r="9"/>
+    <circle cx="231" cy="544" r="9"/>
+    <circle cx="643" cy="569" r="9"/>
+    <circle cx="458" cy="576" r="9"/>
+  </g>
+  <!-- ===== 辅助点（灰）===== -->
+  <g fill="#757575" stroke="#fff" stroke-width="2">
+    <circle cx="667" cy="332" r="8"/>
+    <circle cx="455" cy="346" r="8"/>
+  </g>
+
+  <!-- ===== 点位标签 ===== -->
+  <g font-size="14" font-weight="bold">
+    <text x="350" y="92"  fill="#1565c0">I 掩护梁-顶梁铰点</text>
+    <text x="408" y="110" fill="#1565c0">G 后立柱顶端</text>
+    <text x="650" y="110" fill="#1565c0">E 前立柱顶端</text>
+    <text x="168" y="250" fill="#1565c0">D 前连杆-掩护梁</text>
+    <text x="24"  y="366" fill="#1565c0">C 后连杆-掩护梁</text>
+    <text x="396" y="490" fill="#c62828">A 前连杆-底座</text>
+    <text x="248" y="540" fill="#c62828">B 后连杆-底座</text>
+    <text x="580" y="600" fill="#c62828">F 前立柱-底座</text>
+    <text x="370" y="600" fill="#c62828">后立柱-底座</text>
+    <text x="684" y="320" fill="#616161">K 缸体顶端</text>
+    <text x="404" y="334" fill="#616161">J（脚本未用）</text>
+  </g>
+
+  <!-- ===== 图例 ===== -->
+  <g font-size="12.5" fill="#424242">
+    <rect x="14" y="644" width="772" height="56" rx="6" fill="#fff" stroke="#bdbdbd"/>
+    <circle cx="34" cy="662" r="7" fill="#c62828"/><text x="46" y="666">固定铰点（在底座上，永不移动）</text>
+    <circle cx="268" cy="662" r="7" fill="#1565c0"/><text x="280" y="666">求解点（每次计算后写回模型）</text>
+    <circle cx="496" cy="662" r="7" fill="#757575"/><text x="508" y="666">辅助/未使用点</text>
+    <line x1="26" y1="686" x2="56" y2="686" stroke="#ef6c00" stroke-width="6"/><text x="64" y="690">前连杆</text>
+    <line x1="130" y1="686" x2="160" y2="686" stroke="#2e7d32" stroke-width="6"/><text x="168" y="690">后连杆</text>
+    <rect x="234" y="680" width="30" height="12" fill="#1976d2" fill-opacity="0.13" stroke="#1976d2"/><text x="272" y="690">掩护梁刚体</text>
+    <line x1="368" y1="686" x2="398" y2="686" stroke="#455a64" stroke-width="10"/><text x="406" y="690">液压缸体（固定段）</text>
+    <line x1="540" y1="686" x2="570" y2="686" stroke="#90a4ae" stroke-width="7"/><text x="578" y="690">活塞（伸缩段）</text>
+    <line x1="700" y1="686" x2="730" y2="686" stroke="#9e9e9e" stroke-width="2" stroke-dasharray="5,4"/><text x="738" y="690">机架边</text>
+  </g>
+</svg>
