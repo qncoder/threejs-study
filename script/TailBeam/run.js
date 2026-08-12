@@ -31,18 +31,7 @@ function getTriangle() {
     BC: B.distanceTo(C),
   }
 }
-console.log('Init', Init)
-// const getPointC = (BC) => {
-//   const A = AObject.getWorldPosition(new THREE.Vector3())
-//   const B = BObject.getWorldPosition(new THREE.Vector3())
-//   const angleB = Math.acos((Init.AB * Init.AB + BC * BC - Init.AC * Init.AC) / (2 * Init.AB * BC))
-//   //顺时针旋转为负，逆时针为正
-//   const BAUnit = A.clone().sub(B).normalize() //获取向量ba的标准向量
-//   const pointC = BAUnit.applyAxisAngle(new THREE.Vector3(1, 0, 0), angleB*1)
-//     .multiplyScalar(BC)
-//     .add(B)
-//   return pointC
-// }
+
 const getPointC = (BC) => {
   const A = AObject.getWorldPosition(new THREE.Vector3())
   const B = BObject.getWorldPosition(new THREE.Vector3())
@@ -51,9 +40,6 @@ const getPointC = (BC) => {
   const minBC = Math.abs(Init.AB - Init.AC)
   const maxBC = Init.AB + Init.AC
   const safeBC = BC || THREE.MathUtils.clamp(BC, minBC, maxBC)
-
-  // const cosB = (Init.AB * Init.AB + safeBC * safeBC - Init.AC * Init.AC) / (2 * Init.AB * safeBC)
-  // const angleB = Math.acos(THREE.MathUtils.clamp(cosB, -1, 1))
   const angleB = Math.acos((Init.AB * Init.AB + safeBC * safeBC - Init.AC * Init.AC) / (2 * Init.AB * safeBC))
   const BAUnit = A.clone().sub(B).normalize()
   const BCInitUnit = initC.clone().sub(B).normalize()

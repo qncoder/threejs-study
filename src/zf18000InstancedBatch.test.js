@@ -1,6 +1,8 @@
 import { BoxGeometry, Mesh, MeshBasicMaterial, Object3D } from 'three';
 import { describe, expect, it } from 'vitest';
+import { runNodeControlScript } from './nodeScriptControl.js';
 import {
+  createZf18000ControlRigScriptContext,
   createZf18000InstancedBatch,
   syncControlRigToInstancedBatch,
 } from './zf18000InstancedBatch.js';
@@ -67,5 +69,29 @@ describe('ZF18000 InstancedMesh 批量创建', () => {
     expect(matrix[28]).toBe(12);
     expect(matrix[29]).toBe(3);
     expect(matrix[30]).toBe(0);
+  });
+
+  it('批量脚本里的 scene 可以按名字找到隐藏控制模型里的节点', () => {
+    const displayScene = new Object3D();
+    const rig = new Object3D();
+    const scriptNode = new Object3D();
+    const supportPivot = new Object3D();
+
+    supportPivot.name = 'SupportPivot';
+    supportPivot.quaternion.set(0.2, 0.3, 0.4, 0.5).normalize();
+    rig.add(scriptNode);
+    rig.add(supportPivot);
+
+    const result = runNodeControlScript(
+      scriptNode,
+      "scene.getObjectByName('SupportPivot').quaternion.set(0, 0, 0, 1)",
+      createZf18000ControlRigScriptContext(rig, displayScene)
+    );
+
+    expect(result.ok).toBe(true);
+    expect(supportPivot.quaternion.x).toBe(0);
+    expect(supportPivot.quaternion.y).toBe(0);
+    expect(supportPivot.quaternion.z).toBe(0);
+    expect(supportPivot.quaternion.w).toBe(1);
   });
 });

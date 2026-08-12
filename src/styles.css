@@ -436,6 +436,7 @@ h2 {
   align-items: stretch;
   width: 100%;
   min-width: 100%;
+  padding-left: calc(var(--node-depth) * 16px);
   --node-depth: 0;
 }
 
@@ -447,22 +448,11 @@ h2 {
   gap: 8px;
   width: 100%;
   min-height: 34px;
-  padding: 6px 8px 6px calc(8px + var(--node-depth) * 16px);
+  padding: 6px 8px 6px 8px;
   border: 1px solid #d6d1c6;
   border-radius: 6px;
   text-align: left;
   background: #fffdf7;
-}
-
-.node-list li .node-select::before {
-  content: "";
-  position: absolute;
-  left: calc(8px + var(--node-depth) * 16px - 9px);
-  top: 8px;
-  bottom: 8px;
-  width: 1px;
-  background: #d6d1c6;
-  opacity: clamp(0, var(--node-depth), 1);
 }
 
 .collapse-toggle {
@@ -525,7 +515,7 @@ h2 {
 .node-list li.drop-after::after {
   content: "";
   position: absolute;
-  left: 27px;
+  left: calc(27px + var(--node-depth) * 16px);
   right: 0;
   z-index: 2;
   height: 3px;

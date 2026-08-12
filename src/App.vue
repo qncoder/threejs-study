@@ -22,6 +22,8 @@ import { TransformControls } from 'three/examples/jsm/controls/TransformControls
 import defaultModelUrl from './ZF18000.glb?url'
 import {
   CAMERA_MODES,
+  STANDARD_VIEWS,
+  applyStandardView,
   createCameraFromCurrent,
   createViewerCamera,
   updateViewerCameraProjection,
@@ -32,7 +34,12 @@ import {
   createPoseExport,
   createStructureExport,
 } from './modelStructure.js'
-import { createEditedGlbFileName, exportModelAsGlb } from './modelExport.js'
+import {
+  createEditedGlbFileName,
+  createScriptExportGlbFileName,
+  exportModelAsGlb,
+  exportModelWithScriptsAsGlb,
+} from './modelExport.js'
 import {
   captureOriginalNodeTransforms,
   cloneTransform,
@@ -263,6 +270,14 @@ const cameraModeButtonLabel = computed(() =>
 const cameraModeText = computed(() =>
   cameraMode.value === CAMERA_MODES.ORTHOGRAPHIC ? '正交' : '透视'
 )
+const standardViewList = [
+  { key: 'FRONT', label: '前' },
+  { key: 'BACK', label: '后' },
+  { key: 'RIGHT', label: '右' },
+  { key: 'LEFT', label: '左' },
+  { key: 'TOP', label: '顶' },
+  { key: 'BOTTOM', label: '底' },
+]
 const appShellStyle = computed(() => ({
   '--structure-panel-width': `${structurePanelWidth.value}px`,
 }))
@@ -626,6 +641,27 @@ async function exportEditedModel() {
   } catch (error) {
     console.error(error)
     status.value = '模型导出失败'
+  }
+}
+
+async function exportModelWithScripts() {
+  stopMotionPlayback()
+  if (!currentModel || !modelInfo.value) {
+    status.value = '请先加载模型'
+    return
+  }
+
+  try {
+    status.value = '正在导出包含脚本的模型...'
+    currentModel.updateWorldMatrix?.(true, true)
+    refreshStructureAfterTransform()
+    const payload = await exportModelWithScriptsAsGlb(currentModel)
+    const fileName = createScriptExportGlbFileName(modelInfo.value.fileName)
+    downloadBinary(payload, fileName, 'model/gltf-binary')
+    status.value = `包含脚本的模型已导出：${fileName}`
+  } catch (error) {
+    console.error(error)
+    status.value = '包含脚本的模型导出失败'
   }
 }
 
@@ -2111,14 +2147,29 @@ function toggleCameraMode() {
       ? CAMERA_MODES.PERSPECTIVE
       : CAMERA_MODES.ORTHOGRAPHIC
   const target = controls?.target?.clone?.() ?? new Vector3()
-  const nextCamera = createCameraFromCurrent(nextMode, camera, target, currentCanvasAspect())
-  nextCamera.quaternion.copy(camera.quaternion)
+  const aspect = currentCanvasAspect()
+  const nextCamera = createCameraFromCurrent(nextMode, camera, target, aspect)
+
+  // 进入正交：对齐到右视图（沿 +X 看 YZ 平面），形成侧面 2D 视图
+  // 切回透视：复制当前朝向与位置，保留侧面视角
+  if (nextMode === CAMERA_MODES.ORTHOGRAPHIC) {
+    const box = currentModel ? new Box3().setFromObject(currentModel) : null
+    if (box && !box.isEmpty()) {
+      applyStandardView(nextCamera, STANDARD_VIEWS.RIGHT, box, aspect)
+      const center = box.getCenter(new Vector3())
+      target.copy(center)
+    }
+  } else {
+    nextCamera.quaternion.copy(camera.quaternion)
+  }
   camera = nextCamera
   cameraMode.value = nextMode
 
   if (controls) {
     controls.object = camera
     controls.target.copy(target)
+    // 正交模式下锁定旋转，保持 2D 视图；透视恢复自由旋转
+    controls.enableRotate = nextMode !== CAMERA_MODES.ORTHOGRAPHIC
     controls.update()
   }
   if (transformControls) {
@@ -2126,7 +2177,33 @@ function toggleCameraMode() {
     updateTransformControls()
   }
   resizeRenderer()
-  status.value = nextMode === CAMERA_MODES.ORTHOGRAPHIC ? '已切换到正交相机' : '已切换到透视相机'
+  status.value =
+    nextMode === CAMERA_MODES.ORTHOGRAPHIC
+      ? '已切换到正交相机（右视图）'
+      : '已切换到透视相机'
+}
+
+// 在正交模式下切换到某个轴对齐标准视角
+function setStandardView(viewKey) {
+  if (!camera || cameraMode.value !== CAMERA_MODES.ORTHOGRAPHIC) return
+  const view = STANDARD_VIEWS[viewKey]
+  if (!view) return
+  if (!currentModel) {
+    status.value = '请先加载模型'
+    return
+  }
+  const box = new Box3().setFromObject(currentModel)
+  if (box.isEmpty()) return
+
+  const aspect = currentCanvasAspect()
+  applyStandardView(camera, view, box, aspect)
+  const center = box.getCenter(new Vector3())
+  if (controls) {
+    controls.target.copy(center)
+    controls.update()
+  }
+  resizeRenderer()
+  status.value = `已切换到${view.name}视图`
 }
 
 function restoreCurrentSessionState() {
@@ -2718,6 +2795,18 @@ function createEmptyTransform() {
           >
             相机：{{ cameraModeText }}
           </button>
+          <template v-if="cameraMode === CAMERA_MODES.ORTHOGRAPHIC">
+            <button
+              v-for="view in standardViewList"
+              :key="view.key"
+              type="button"
+              :disabled="!modelReady"
+              :title="`${view.label}视图`"
+              @click="setStandardView(view.key)"
+            >
+              {{ view.label }}
+            </button>
+          </template>
         </div>
         <span class="toolbar-divider" aria-hidden="true"></span>
         <div class="toolbar-group" aria-label="操作">
@@ -2753,6 +2842,9 @@ function createEmptyTransform() {
         <div class="status-line" :class="{ loading: isLoading }">{{ status }}</div>
         <div class="button-grid file-actions">
           <button type="button" :disabled="!modelReady" @click="exportEditedModel">导出模型</button>
+          <button type="button" :disabled="!modelReady" @click="exportModelWithScripts">
+            导出模型（包含脚本）
+          </button>
           <button type="button" @click="clearCurrentSessionState">清除会话</button>
         </div>
       </section>

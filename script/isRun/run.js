@@ -219,6 +219,7 @@ class HydraulicMechanism {
 
   setWorldPosition(object, worldPoint) {
     if (!object) {
+      console.log('没有找到节点：',object)
       return
     }
 
@@ -366,6 +367,7 @@ class HydraulicMechanism {
       'frontcolumn_hydraulic_slidingshaft2_pos'
     )
     const frontcolumn_fixed_pos = this.scene.getObjectByName('frontcolumn_hydraulic_fixed_pos')
+    console.log(frontcolumn_slidingshaft2_pos)
     frontcolumn_slidingshaft2_pos.lookAt(
       frontcolumn_fixed_pos.getWorldPosition(new THREE.Vector3())
     )

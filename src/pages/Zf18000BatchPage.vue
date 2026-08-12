@@ -19,7 +19,7 @@ import {
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { clone as cloneGltfScene } from 'three/examples/jsm/utils/SkeletonUtils.js'
-import defaultModelUrl from '../ZF18000.glb?url'
+import defaultModelUrl from '../ZF18000-scence-action.glb?url'
 import { CAMERA_MODES, createViewerCamera, updateViewerCameraProjection } from '../viewerCamera.js'
 import { runNodeControlScript } from '../nodeScriptControl.js'
 import { applyLookAtMeshHierarchy } from '../lookAtScript.js'
@@ -30,6 +30,7 @@ import {
   createZf18000BatchPositions,
 } from '../zf18000BatchLayout.js'
 import {
+  createZf18000ControlRigScriptContext,
   createZf18000InstancedBatch,
   syncControlRigToInstancedBatch,
 } from '../zf18000InstancedBatch.js'
@@ -216,7 +217,11 @@ function executeSelectedScript() {
     return
   }
 
-  const runResult = runNodeControlScript(rigResult.scriptNode, scriptSource.value, { scene })
+  const runResult = runNodeControlScript(
+    rigResult.scriptNode,
+    scriptSource.value,
+    createZf18000ControlRigScriptContext(rigResult.rig)
+  )
   if (!runResult.ok) {
     scriptMessage.value = `脚本执行失败：${runResult.error}`
     return
@@ -285,7 +290,11 @@ function getOrCreateControlRig(instanceIndex) {
   rig.updateWorldMatrix(true, true)
 
   const scriptNode = findFlapScriptNode(rig)
-  const lookAtResult = runNodeControlScript(scriptNode, flapLookAtScript, { scene })
+  const lookAtResult = runNodeControlScript(
+    scriptNode,
+    flapLookAtScript,
+    createZf18000ControlRigScriptContext(rig)
+  )
   if (!lookAtResult.ok) {
     return {
       ok: false,

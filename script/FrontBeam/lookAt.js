@@ -1,0 +1,6 @@
+const AObject = node.getObjectByName('frontbeam_pos')
+const BObject = node.getObjectByName('frontbeam_hydraulic_slidingshaft_pos')
+const CObject = node.getObjectByName('frontbeam_hydraulic_fixed_pos')
+BObject.lookAt(CObject.getWorldPosition(new THREE.Vector3()))
+CObject.lookAt(BObject.getWorldPosition(new THREE.Vector3()))
+AObject.lookAt(BObject.getWorldPosition(new THREE.Vector3()))

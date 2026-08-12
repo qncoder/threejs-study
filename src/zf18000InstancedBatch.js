@@ -1,5 +1,11 @@
 import { Group, InstancedMesh, Matrix4 } from 'three';
 
+export function createZf18000ControlRigScriptContext(rig) {
+  return {
+    scene: rig ?? null,
+  };
+}
+
 export function createZf18000InstancedBatch(templateModel, positions) {
   const root = new Group();
   root.name = 'ZF18000InstancedBatchRoot';
